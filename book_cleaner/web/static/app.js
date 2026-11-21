@@ -1,0 +1,449 @@
+/** Main workbench bootstrapper: book management, modals, SSE live updates, keyboard shortcuts. */
+
+import { apiJson, el, enableDialogLightDismissFallback, showToast } from "/static/api.js";
+import { createCaptureController } from "/static/capture.js";
+import { createDataCleanController } from "/static/dataclean.js";
+import { createReviewAndPipelineController } from "/static/review.js";
+
+const state = {
+  books: [],
+  currentBookId: null,
+  activeTab: "capture",
+  recentCaptured: [],
+};
+
+const bookSelect = document.getElementById("bookSelect");
+const pipelinePill = document.getElementById("pipelinePill");
+const pipelinePillText = document.getElementById("pipelinePillText");
+const newBookDialog = document.getElementById("newBookDialog");
+const settingsDialog = document.getElementById("settingsDialog");
+
+enableDialogLightDismissFallback(newBookDialog);
+enableDialogLightDismissFallback(settingsDialog);
+
+document.querySelectorAll("[data-close-dialog]").forEach((btn) => {
+  btn.addEventListener("click", () => {
+    const dlg = document.getElementById(btn.dataset.closeDialog);
+    if (dlg) dlg.close();
+  });
+});
+
+let captureCtrl = null;
+let reviewCtrl = null;
+let dataCleanCtrl = null;
+
+function switchTab(tabKey) {
+  state.activeTab = tabKey;
+  document.querySelectorAll(".tab-btn").forEach((b) => {
+    const active = b.dataset.tab === tabKey;
+    b.classList.toggle("is-active", active);
+    b.setAttribute("aria-selected", String(active));
+  });
+  document.querySelectorAll(".tab-panel").forEach((p) => {
+    p.classList.toggle("is-active", p.id === `tab-${tabKey}`);
+  });
+  if (tabKey === "review") reviewCtrl.refreshPageList();
+  if (tabKey === "dataclean" && dataCleanCtrl) {
+    dataCleanCtrl.loadTemplates().then(() => dataCleanCtrl.refreshPreview());
+  }
+  if (tabKey === "pipeline" || tabKey === "export") {
+    refreshStats();
+    reviewCtrl.refreshJobs();
+    if (tabKey === "export" && dataCleanCtrl) dataCleanCtrl.loadTemplates();
+  }
+}
+
+document.querySelectorAll(".tab-btn").forEach((b) => {
+  b.addEventListener("click", () => switchTab(b.dataset.tab));
+});
+
+async function refreshBooks(preferBookId = null) {
+  const data = await apiJson("/api/books");
+  state.books = data.items || [];
+  bookSelect.replaceChildren();
+  for (const b of state.books) {
+    const count = (b.stats && b.stats.total) || 0;
+    bookSelect.appendChild(
+      el("option", { value: String(b.id), text: `${b.title} (${count}页)` })
+    );
+  }
+  if (preferBookId && state.books.some((b) => b.id === preferBookId)) {
+    state.currentBookId = preferBookId;
+  } else if (!state.currentBookId || !state.books.some((b) => b.id === state.currentBookId)) {
+    state.currentBookId = state.books[0] ? state.books[0].id : null;
+  }
+  if (state.currentBookId) {
+    bookSelect.value = String(state.currentBookId);
+    const activeBook = state.books.find((b) => b.id === state.currentBookId);
+    if (activeBook && captureCtrl) {
+      captureCtrl.applyBookProfile(activeBook.profile);
+      captureCtrl.refreshMobileQr();
+    }
+  }
+}
+
+async function refreshStats() {
+  if (!state.currentBookId) return;
+  const stats = await apiJson(`/api/stats?book_id=${state.currentBookId}`);
+  reviewCtrl.renderStats(stats);
+  captureCtrl.updateBackendCamStatus(stats.camera);
+
+  const b = stats.book || { total: 0, pending_clean: 0, pending_ocr: 0 };
+  if (stats.paused) {
+    pipelinePill.className = "pill pill-warn";
+    pipelinePillText.textContent = "流水线已暂停";
+  } else {
+    pipelinePill.className = "pill pill-ok";
+    const activeQ = (b.pending_clean || 0) + (b.pending_ocr || 0);
+    pipelinePillText.textContent = activeQ > 0 ? `处理中 (${activeQ} 页排队)` : `就绪 (${b.total} 页)`;
+  }
+}
+
+bookSelect.addEventListener("change", async () => {
+  state.currentBookId = Number(bookSelect.value);
+  state.recentCaptured = [];
+  captureCtrl.renderRecentStrip();
+  const activeBook = state.books.find((b) => b.id === state.currentBookId);
+  if (activeBook) captureCtrl.applyBookProfile(activeBook.profile);
+  captureCtrl.refreshMobileQr();
+  await refreshStats();
+  if (state.activeTab === "review") await reviewCtrl.refreshPageList();
+  if (state.activeTab === "dataclean" && dataCleanCtrl) await dataCleanCtrl.refreshPreview();
+  if (state.activeTab === "pipeline" || state.activeTab === "export") await reviewCtrl.refreshJobs();
+});
+
+// New Book Modal
+document.getElementById("newBookBtn").addEventListener("click", () => {
+  document.getElementById("newBookForm").reset();
+  newBookDialog.showModal();
+});
+document.getElementById("newBookForm").addEventListener("submit", async (e) => {
+  e.preventDefault();
+  try {
+    const created = await apiJson("/api/books", {
+      method: "POST",
+      body: {
+        title: document.getElementById("newBookTitleInput").value,
+        author: document.getElementById("newBookAuthorInput").value,
+        isbn: document.getElementById("newBookIsbnInput").value,
+      },
+    });
+    newBookDialog.close();
+    await refreshBooks(created.id);
+    await refreshStats();
+    showToast(`已创建书目《${created.title}》`, "ok");
+  } catch (err) {
+    showToast(err.message, "danger");
+  }
+});
+
+// Demo seed button
+document.getElementById("seedDemoBtn").addEventListener("click", async () => {
+  if (!state.currentBookId) return;
+  try {
+    const res = await apiJson(`/api/books/${state.currentBookId}/seed-demo`, { method: "POST" });
+    showToast(`已生成 ${res.created_pages} 页演示样本（含双页拆单、弯页手指、泛黄阴影及模糊/重复测试）`, "ok");
+    await refreshBooks(state.currentBookId);
+    await refreshStats();
+    if (state.activeTab === "review") await reviewCtrl.refreshPageList();
+  } catch (err) {
+    showToast(err.message, "danger");
+  }
+});
+
+// Settings, OCR Engine & DeepSeek-OCR 2 On-Demand Add-on Modal
+function renderAddonStatus(st) {
+  if (!st) return;
+  const hw = st.hardware || {};
+  const badge = document.getElementById("addonStateBadge");
+  const hwSummary = document.getElementById("hwSummaryText");
+  const hwDetails = document.getElementById("hwDetailList");
+  const progBar = document.getElementById("addonProgressBar");
+  const progText = document.getElementById("addonProgressText");
+  const logTail = document.getElementById("addonLogTail");
+  const installBtn = document.getElementById("installAddonBtn");
+  const cancelBtn = document.getElementById("cancelAddonBtn");
+  const uninstallBtn = document.getElementById("uninstallAddonBtn");
+  const forceChk = document.getElementById("addonForceChk");
+  const localOpt = document.querySelector('#ocrEngineSelect option[value="deepseek_ocr2_local"]');
+
+  const installed = Boolean(st.installed);
+  const installing = st.install_state === "installing";
+  if (installed) {
+    badge.textContent = `已安装 (${st.disk_usage_mb} MB)`;
+    badge.className = "pill pill-ok";
+  } else if (installing) {
+    badge.textContent = `安装中 ${st.percent || 0}%`;
+    badge.className = "pill pill-warn";
+  } else if (st.install_state === "failed") {
+    badge.textContent = "安装失败";
+    badge.className = "pill pill-danger";
+  } else {
+    badge.textContent = "未安装（可按需下载）";
+    badge.className = "pill";
+  }
+
+  if (localOpt) {
+    localOpt.disabled = !installed;
+    localOpt.textContent = installed
+      ? "DeepSeek-OCR 2 本地插件包（已安装就绪）"
+      : "DeepSeek-OCR 2 本地插件包（需先检测并下载）";
+  }
+
+  const gpus = hw.gpus || [];
+  const gpuTxt = gpus.length ? `${gpus[0].name} (${gpus[0].vram_mb} MB)` : "未检测到 NVIDIA GPU";
+  hwSummary.textContent = `平台: ${hw.platform || "-"} · 显卡: ${gpuTxt} · 内存: ${hw.ram_gb || 0} GB · 可用空间: ${hw.free_disk_gb || 0} GB`;
+  hwSummary.style.color = hw.can_run_local ? "var(--ok)" : "var(--warn)";
+
+  hwDetails.replaceChildren();
+  hwDetails.appendChild(el("div", { text: hw.recommendation || "" }));
+  for (const reason of hw.reasons || []) {
+    hwDetails.appendChild(el("div", { style: "color:var(--warn);", text: `• ${reason}` }));
+  }
+
+  progBar.style.width = `${st.percent || 0}%`;
+  progText.textContent = st.message || "";
+  if (st.log_tail) {
+    logTail.textContent = st.log_tail;
+    logTail.classList.remove("hidden");
+  } else {
+    logTail.classList.add("hidden");
+  }
+
+  installBtn.classList.toggle("hidden", installing || installed);
+  installBtn.disabled = !hw.can_run_local && !forceChk.checked;
+  cancelBtn.classList.toggle("hidden", !installing);
+  uninstallBtn.classList.toggle("hidden", !installed && st.disk_usage_mb <= 0);
+}
+
+async function refreshAddonStatus(recheck = false) {
+  const url = recheck ? "/api/ocr/addons/deepseek/check" : "/api/ocr/addons/deepseek";
+  const st = await apiJson(url, { method: recheck ? "POST" : "GET" });
+  renderAddonStatus(st);
+  return st;
+}
+
+document.getElementById("openSettingsBtn").addEventListener("click", async () => {
+  try {
+    const [cfg, addonSt] = await Promise.all([apiJson("/api/settings"), refreshAddonStatus(false)]);
+    const ocr = cfg.ocr || {};
+    document.getElementById("ocrEngineSelect").value = ocr.engine || "rapidocr";
+    document.getElementById("ocrApiBaseUrlInput").value = ocr.api_base_url || "https://api.siliconflow.cn/v1";
+    document.getElementById("ocrApiModelInput").value = ocr.api_model || "deepseek-ai/DeepSeek-OCR-2";
+    document.getElementById("ocrApiKeyInput").value = ocr.api_key || "";
+    document.getElementById("ocrHybridConfInput").value = String(ocr.hybrid_conf_threshold ?? 0.85);
+    document.getElementById("ocrHybridTablesChk").checked = ocr.hybrid_upgrade_tables !== false;
+    document.getElementById("ocrApiTestResult").textContent = "";
+
+    const llm = cfg.llm || {};
+    document.getElementById("llmModeSelect").value = llm.mode || "off";
+    document.getElementById("llmBaseUrlInput").value = llm.base_url || "https://api.openai.com/v1";
+    document.getElementById("llmModelInput").value = llm.model || "gpt-4o-mini";
+    document.getElementById("llmApiKeyInput").value = llm.api_key || "";
+    document.getElementById("llmLowConfInput").value = String(llm.low_conf_threshold ?? 0.85);
+    document.getElementById("llmTestResult").textContent = "";
+    renderAddonStatus(addonSt);
+    settingsDialog.showModal();
+  } catch (err) {
+    showToast(err.message, "danger");
+  }
+});
+
+document.getElementById("recheckHwBtn").addEventListener("click", async () => {
+  try {
+    await refreshAddonStatus(true);
+    showToast("已完成本机硬件检测", "ok");
+  } catch (err) {
+    showToast(err.message, "danger");
+  }
+});
+
+document.getElementById("addonForceChk").addEventListener("change", () => {
+  refreshAddonStatus(false).catch(() => {});
+});
+
+document.getElementById("installAddonBtn").addEventListener("click", async () => {
+  try {
+    const st = await apiJson("/api/ocr/addons/deepseek/install", {
+      method: "POST",
+      body: {
+        use_cn_mirror: document.getElementById("addonMirrorChk").checked,
+        force: document.getElementById("addonForceChk").checked,
+      },
+    });
+    renderAddonStatus(st);
+    showToast("DeepSeek-OCR 2 插件包已开始后台下载安装", "ok");
+  } catch (err) {
+    showToast(err.message, "warn");
+  }
+});
+
+document.getElementById("cancelAddonBtn").addEventListener("click", async () => {
+  const st = await apiJson("/api/ocr/addons/deepseek/cancel", { method: "POST" });
+  renderAddonStatus(st);
+});
+
+document.getElementById("uninstallAddonBtn").addEventListener("click", async () => {
+  const st = await apiJson("/api/ocr/addons/deepseek", { method: "DELETE" });
+  renderAddonStatus(st);
+  showToast("已卸载插件包并释放空间", "ok");
+});
+
+function readOcrForm() {
+  return {
+    engine: document.getElementById("ocrEngineSelect").value,
+    api_base_url: document.getElementById("ocrApiBaseUrlInput").value.trim(),
+    api_model: document.getElementById("ocrApiModelInput").value.trim(),
+    api_key: document.getElementById("ocrApiKeyInput").value.trim(),
+    hybrid_conf_threshold: Number(document.getElementById("ocrHybridConfInput").value || 0.85),
+    hybrid_upgrade_tables: document.getElementById("ocrHybridTablesChk").checked,
+  };
+}
+
+function readLlmForm() {
+  return {
+    mode: document.getElementById("llmModeSelect").value,
+    base_url: document.getElementById("llmBaseUrlInput").value.trim(),
+    model: document.getElementById("llmModelInput").value.trim(),
+    api_key: document.getElementById("llmApiKeyInput").value.trim(),
+    low_conf_threshold: Number(document.getElementById("llmLowConfInput").value || 0.85),
+  };
+}
+
+document.getElementById("testOcrApiBtn").addEventListener("click", async () => {
+  const out = document.getElementById("ocrApiTestResult");
+  out.textContent = "正在测试 DeepSeek 视觉 API 连通性...";
+  try {
+    const o = readOcrForm();
+    const res = await apiJson("/api/ocr/test-api", {
+      method: "POST",
+      body: { api_base_url: o.api_base_url, api_key: o.api_key, api_model: o.api_model },
+    });
+    out.textContent = res.message;
+    out.style.color = res.ok ? "var(--ok)" : "var(--danger)";
+  } catch (err) {
+    out.textContent = err.message;
+    out.style.color = "var(--danger)";
+  }
+});
+
+document.getElementById("testLlmBtn").addEventListener("click", async () => {
+  const out = document.getElementById("llmTestResult");
+  out.textContent = "正在测试接口连通性...";
+  try {
+    const res = await apiJson("/api/settings/test-llm", { method: "POST", body: readLlmForm() });
+    out.textContent = res.message;
+    out.style.color = res.ok ? "var(--ok)" : "var(--danger)";
+  } catch (err) {
+    out.textContent = err.message;
+    out.style.color = "var(--danger)";
+  }
+});
+
+document.getElementById("settingsForm").addEventListener("submit", async (e) => {
+  e.preventDefault();
+  try {
+    await apiJson("/api/settings", { method: "PUT", body: { ocr: readOcrForm(), llm: readLlmForm() } });
+    settingsDialog.close();
+    showToast("OCR 引擎与大模型设置已保存", "ok");
+  } catch (err) {
+    showToast(err.message, "danger");
+  }
+});
+
+// Keyboard shortcuts (USB Foot pedal Space/Enter in capture; J/K/A in review)
+document.addEventListener("keydown", (e) => {
+  const tag = (e.target && e.target.tagName) || "";
+  if (tag === "INPUT" || tag === "TEXTAREA" || tag === "SELECT" || newBookDialog.open || settingsDialog.open) {
+    return;
+  }
+  if (state.activeTab === "capture") {
+    if (e.code === "Space" || e.code === "Enter") {
+      e.preventDefault();
+      captureCtrl.triggerShutter();
+    } else if (e.code === "Backspace") {
+      e.preventDefault();
+      captureCtrl.undoLast();
+    }
+  } else if (state.activeTab === "review") {
+    if (e.key === "j" || e.key === "J" || e.key === "ArrowDown") {
+      e.preventDefault();
+      reviewCtrl.stepSelection(1);
+    } else if (e.key === "k" || e.key === "K" || e.key === "ArrowUp") {
+      e.preventDefault();
+      reviewCtrl.stepSelection(-1);
+    } else if (e.key === "a" || e.key === "A") {
+      e.preventDefault();
+      reviewCtrl.approveCurrent();
+    }
+  }
+});
+
+// Live SSE Event Stream with debounced UI refresh
+let sseRefreshTimer = null;
+function connectSse() {
+  const es = new EventSource("/api/events");
+  es.onmessage = (ev) => {
+    if (!ev.data || ev.data === "{}") return;
+    let payload = null;
+    try {
+      payload = JSON.parse(ev.data);
+    } catch {
+      return;
+    }
+    if (payload.type === "addon_progress") {
+      renderAddonStatus(payload.data);
+      return;
+    }
+    clearTimeout(sseRefreshTimer);
+    sseRefreshTimer = setTimeout(async () => {
+      await refreshStats();
+      await refreshBooks(state.currentBookId);
+      if (payload.type === "job_progress") {
+        await reviewCtrl.refreshJobs();
+      }
+      if (state.activeTab === "review") {
+        const curId = reviewCtrl.getSelectedPageId();
+        await reviewCtrl.refreshPageList(curId);
+      }
+    }, 280);
+  };
+  es.onerror = () => {
+    es.close();
+    setTimeout(connectSse, 3000);
+  };
+}
+
+async function init() {
+  captureCtrl = createCaptureController(state, {
+    onCaptured: () => refreshStats(),
+    onBookUpdated: (updated) => {
+      const idx = state.books.findIndex((b) => b.id === updated.id);
+      if (idx >= 0) state.books[idx] = updated;
+    },
+    onJobsUpdated: () => reviewCtrl.refreshJobs(),
+    onJumpToReview: async (pageId) => {
+      switchTab("review");
+      await reviewCtrl.refreshPageList(pageId);
+    },
+  });
+
+  reviewCtrl = createReviewAndPipelineController(state, {
+    onStatsNeeded: () => refreshStats(),
+  });
+
+  dataCleanCtrl = createDataCleanController(state, {
+    onExportTriggered: () => {
+      switchTab("export");
+      setTimeout(() => reviewCtrl.refreshJobs(), 450);
+    },
+  });
+
+  await refreshBooks();
+  await dataCleanCtrl.loadTemplates();
+  await refreshStats();
+  captureCtrl.renderRecentStrip();
+  connectSse();
+}
+
+init().catch((err) => showToast(`初始化失败: ${err.message}`, "danger"));

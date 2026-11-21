@@ -1,0 +1,88 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+  <meta name="color-scheme" content="light dark">
+  <title>Android 采集伴侣 · Book Cleaner</title>
+  <link rel="stylesheet" href="/static/styles.css">
+</head>
+<body>
+  <main class="mobile-shell">
+    <div class="card">
+      <div style="display:flex;justify-content:space-between;align-items:center;gap:8px;">
+        <div>
+          <div style="font-size:12px;color:var(--muted);">Android 采集端（压书手自动避让）</div>
+          <h1 id="mobileBookTitle" style="margin:2px 0 0;font-size:17px;">加载书目中...</h1>
+        </div>
+        <span id="mobilePageCountPill" class="pill pill-ok">0 页</span>
+      </div>
+      <div style="margin-top:10px;display:flex;gap:8px;align-items:center;">
+        <select id="mobileBookSelect" class="book-select" style="flex:1;"></select>
+        <label class="toggle-item" style="padding:6px 10px;font-size:12px;">
+          <input id="mobileSplitSpreadChk" type="checkbox">
+          <span>双页拆单</span>
+        </label>
+      </div>
+    </div>
+
+    <!-- Secure context live Android Chrome studio (USB 127.0.0.1 or Wi-Fi HTTPS) -->
+    <div id="mobileLiveCard" class="card hidden">
+      <div style="display:flex;flex-wrap:wrap;gap:6px;align-items:center;justify-content:space-between;margin-bottom:8px;">
+        <span id="mobileZeroStoragePill" class="pill pill-ok">内存直传电脑 · 手机 0 存储</span>
+        <div style="display:flex;gap:6px;align-items:center;">
+          <span id="mobileCaptureModeBadge" class="pill">检测硬件静帧中...</span>
+          <span id="mobileQueueBadge" class="pill">待传 0</span>
+        </div>
+      </div>
+      <div class="viewport-box" style="min-height:310px;">
+        <video id="mobileVideo" autoplay playsinline muted></video>
+        <div class="thumb-zone-left">拇指压书区<br>自动擦除</div>
+        <div class="thumb-zone-right">拇指压书区<br>自动擦除</div>
+        <div id="mobileCenterGuide" class="center-clear-guide"></div>
+        <div class="settle-meter"><div id="mobileSettleFill" class="settle-meter-fill"></div></div>
+        <div class="hud-overlay">
+          <span id="mobileSmartHud">压书自动抓拍：就绪</span>
+          <span id="mobileResHud">-</span>
+        </div>
+      </div>
+
+      <div class="mobile-ctrl-row">
+        <label class="toggle-item" style="flex:1;min-width:170px;">
+          <input id="mobileAutoTriggerChk" type="checkbox" checked>
+          <span>压书手辅助全自动抓拍</span>
+        </label>
+        <button id="mobileTorchBtn" type="button" class="btn hidden">开启补光灯</button>
+        <button id="mobileUndoBtn" type="button" class="btn btn-warn">撤销上一页</button>
+      </div>
+
+      <button id="mobileLiveShutterBtn" type="button" class="btn btn-primary mobile-shutter-big" style="margin-top:10px;">
+        手动补拍一页（内存直传）
+      </button>
+    </div>
+
+    <!-- Native Camera Capture (strictly plain-HTTP fallback when browser camera stream is unavailable) -->
+    <div id="mobileNativeCard" class="card">
+      <div id="mobileContextNotice" style="font-size:12px;color:var(--muted);margin-bottom:10px;">
+        当前为普通局域网 HTTP 备用模式（系统相机可能会生成临时相册文件）。建议使用 Android USB 直连或 Windows HTTPS 模式解锁「手机 0 存储」内存直传。
+      </div>
+      <label class="btn btn-primary mobile-shutter-big" style="cursor:pointer;">
+        <span>备用：调用系统相机拍一页</span>
+        <input id="mobileNativeCameraInput" type="file" accept="image/*" capture="environment" class="hidden">
+      </label>
+    </div>
+
+    <div id="mobileStatusBanner" class="card" style="background:var(--surface-alt);">
+      <div style="font-size:12px;color:var(--muted);">上传与即时质检反馈</div>
+      <div id="mobileQaResult" style="font-size:15px;font-weight:700;margin-top:4px;">准备就绪，双手可压住左右蓝区翻拍</div>
+    </div>
+
+    <div class="card">
+      <div style="font-size:13px;font-weight:700;margin-bottom:6px;">本机最近拍摄</div>
+      <div id="mobileRecentStrip" class="recent-strip scroller"></div>
+    </div>
+  </main>
+
+  <script type="module" src="/static/mobile.js"></script>
+</body>
+</html>
