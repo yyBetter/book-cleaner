@@ -19,16 +19,24 @@
 
 ---
 
-## 二、Windows 电脑端启动（2 分钟搞定）
+## 二、Windows 电脑端启动（1 分钟搞定，无需安装 pyenv）
 
-1. **安装运行环境（仅首次需要）**：在 Windows PowerShell 运行：
-   ```powershell
-   powershell -ExecutionPolicy ByPass -c "irm https://astral.sh/uv/install.ps1 | iex"
-   ```
-2. **双击启动脚本**（任选其一）：
+1. **安装 `uv`（仅首次需要，无需手动安装 `pyenv` 或重装 Python）**：
+   - 若电脑已有 Python，直接用国内清华源安装 `uv`（数秒完成）：
+     ```powershell
+     pip install -U uv -i https://pypi.tuna.tsinghua.edu.cn/simple
+     ```
+   - 若电脑未安装过 Python，在 PowerShell 运行：
+     ```powershell
+     powershell -ExecutionPolicy ByPass -c "irm https://astral.sh/uv/install.ps1 | iex"
+     ```
+   - 项目已原生兼容 Python **3.11 – 3.13**，`uv` 会优先复用本机 Python，或自动从阿里云 `npmmirror` 镜像下载轻量运行环境。
+2. **双击启动脚本**（已内置 **清华源 ➔ 阿里云 ➔ 中科大三镜像自动切换**，总依赖约 **125 MB**，国内网络通常 15–40 秒装完，之后每次运行自动离线秒开）：
    - **USB 有线直连手机 / 外接摄像头**：双击 [start_windows.bat](../start_windows.bat)
    - **Wi-Fi 无线连拍并开启实时自动抓拍**：双击 [start_windows_https.bat](../start_windows_https.bat)（自动生成局域网自签证书，无需手动装 OpenSSL）
-3. **如手机 Wi-Fi 连不上 Windows**：以管理员身份在 PowerShell 执行一次 [setup_windows_firewall.ps1](../scripts/setup_windows_firewall.ps1) 放行内网 8765 端口（确保 Windows 网络设为「专用网络」）。
+3. **如遇 `os error 11001`（DNS 解析失败）或手机 Wi-Fi 连不上 Windows**：
+   - 若提示 DNS 异常，先关闭异常代理/VPN 或在 CMD 执行 `ipconfig /flushdns` 后重试；
+   - 若手机连不上电脑，以管理员身份在 PowerShell 执行一次 [setup_windows_firewall.ps1](../scripts/setup_windows_firewall.ps1) 放行内网 8765 端口（确保 Windows 网络设为「专用网络」）。
 
 ---
 

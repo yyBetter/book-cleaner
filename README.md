@@ -27,26 +27,28 @@
 
 ## 快速启动
 
-### Windows 电脑（推荐）
+### Windows 电脑（推荐，无需手装 pyenv/Python）
 1. 拉取或下载本项目源码：
    ```powershell
    git clone https://github.com/yyBetter/book-cleaner.git
    cd book-cleaner
    ```
-2. 首次安装 `uv`（PowerShell 执行一次即可）：
+2. 首次安装 `uv`（若电脑已有 Python 3.8+，用国内清华源安装极快；无需单独折腾 `pyenv`）：
    ```powershell
-   powershell -ExecutionPolicy ByPass -c "irm https://astral.sh/uv/install.ps1 | iex"
+   pip install -U uv -i https://pypi.tuna.tsinghua.edu.cn/simple
    ```
+   （若本机完全没装过 Python，也可用官方安装命令：`powershell -ExecutionPolicy ByPass -c "irm https://astral.sh/uv/install.ps1 | iex"`，之后 `uv` 会自动通过阿里云 `npmmirror` 镜像拉取 Python，免手动配置）
 3. 双击启动：
    - [start_windows_https.bat](start_windows_https.bat)（推荐：自动启用 `--auto-https`，Android Wi-Fi 扫码解锁实时压书自动抓拍与手机 0 存储直传）
    - 或 [start_windows.bat](start_windows.bat)（USB 直连 Android 手机 / 高拍仪）
+   - 启动脚本已内置 **清华源 ➔ 阿里云 ➔ 中科大三镜像自动切换 + 阿里云 Python CDN**，总运行依赖仅约 **125 MB**（国内宽带通常 **15–40 秒**完成），二次启动自动离线秒开（`<1s`）；若出现 DNS 报错 `os error 11001`，请关闭异常代理/VPN 或执行 `ipconfig /flushdns` 后重试。
    - 详细配置指南见 [docs/android-windows-setup.md](docs/android-windows-setup.md)。
 
 ### macOS / Linux 命令行
 ```bash
 cd book-cleaner
-uv sync --python 3.12
-uv run book-cleaner serve --host 0.0.0.0 --port 8765 --auto-https
+uv sync --no-dev
+uv run --no-sync book-cleaner serve --host 0.0.0.0 --port 8765 --auto-https
 ```
 
 启动后：

@@ -1,7 +1,7 @@
 .PHONY: setup serve test demo check-js
 
 setup:
-	uv sync --python 3.12
+	uv sync
 
 serve:
 	uv run book-cleaner serve --host 0.0.0.0 --port 8765

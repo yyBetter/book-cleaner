@@ -345,26 +345,56 @@ class DeepSeekAddonManager:
                 self.addon_dir.mkdir(parents=True, exist_ok=True)
                 self.model_dir.mkdir(parents=True, exist_ok=True)
 
+                env = dict(os.environ)
+                env["UV_HTTP_TIMEOUT"] = "120"
+                env["UV_LINK_MODE"] = "copy"
+                if use_cn_mirror:
+                    env["UV_PYTHON_INSTALL_MIRROR"] = (
+                        "https://registry.npmmirror.com/-/binary/python-build-standalone"
+                    )
+                    env["UV_DEFAULT_INDEX"] = "https://pypi.tuna.tsinghua.edu.cn/simple"
+                    env["HF_ENDPOINT"] = "https://hf-mirror.com"
+
                 # 1. Create isolated .venv inside data/addons/deepseek_ocr2/
                 self._set_progress("installing", "venv", 15, "正在创建插件专属 Python 3.12 隔离环境...")
-                self._run_step([uv_bin, "venv", str(self.venv_dir), "--python", "3.12", "--clear"])
+                self._run_step([uv_bin, "venv", str(self.venv_dir), "--python", "3.12", "--clear"], env=env)
 
                 py_exe = _venv_python_path(self.venv_dir)
                 # 2. Install CUDA PyTorch & runtime libs ONLY inside add-on venv
                 self._set_progress("installing", "deps", 35, "正在下载安装 PyTorch CUDA 与推理依赖...")
-                self._run_step(
-                    [
-                        uv_bin,
-                        "pip",
-                        "install",
-                        "--python",
-                        str(py_exe),
-                        "torch",
-                        "torchvision",
-                        "--index-url",
-                        "https://download.pytorch.org/whl/cu124",
-                    ]
-                )
+                torch_cmd_base = [
+                    uv_bin,
+                    "pip",
+                    "install",
+                    "--python",
+                    str(py_exe),
+                    "torch",
+                    "torchvision",
+                    "--index-url",
+                ]
+                if use_cn_mirror:
+                    try:
+                        self._run_step(
+                            [*torch_cmd_base, "https://mirror.nju.edu.cn/pytorch/whl/cu124"],
+                            env=env,
+                        )
+                    except RuntimeError:
+                        self._set_progress(
+                            "installing",
+                            "deps",
+                            40,
+                            "南大 PyTorch 镜像不可用，自动回退官方 CUDA 源...",
+                        )
+                        self._run_step(
+                            [*torch_cmd_base, "https://download.pytorch.org/whl/cu124"],
+                            env=env,
+                        )
+                else:
+                    self._run_step(
+                        [*torch_cmd_base, "https://download.pytorch.org/whl/cu124"],
+                        env=env,
+                    )
+
                 self._set_progress("installing", "deps_hf", 55, "正在安装 Transformers 与模型下载组件...")
                 self._run_step(
                     [
@@ -380,14 +410,12 @@ class DeepSeekAddonManager:
                         "einops",
                         "easydict",
                         "addict",
-                    ]
+                    ],
+                    env=env,
                 )
 
                 # 3. Download DeepSeek-OCR-2 weights
                 self._set_progress("installing", "weights", 70, f"正在拉取 {repo_id} 模型权重...")
-                env = dict(os.environ)
-                if use_cn_mirror:
-                    env["HF_ENDPOINT"] = "https://hf-mirror.com"
                 dl_code = (
                     "from huggingface_hub import snapshot_download; "
                     f"snapshot_download(repo_id={repo_id!r}, local_dir={str(self.model_dir)!r})"
