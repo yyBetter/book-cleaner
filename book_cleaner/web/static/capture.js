@@ -7,6 +7,7 @@ import {
   playBeep,
   showToast,
   translateFlag,
+  wireTwoStepAction,
   withButtonLoading,
 } from "/static/api.js";
 import { HandsOnSmartTrigger } from "/static/smart_trigger.js";
@@ -157,6 +158,21 @@ export function createCaptureController(state, callbacks) {
     renderRecentStrip();
   }
 
+  async function loadRecentFromBook() {
+    if (!state.currentBookId) {
+      state.recentCaptured = [];
+      renderRecentStrip();
+      return;
+    }
+    try {
+      const res = await apiJson(`/api/books/${state.currentBookId}/pages?limit=12&order=desc`);
+      state.recentCaptured = res.items || [];
+      renderRecentStrip();
+    } catch {
+      // Ignore transient load error
+    }
+  }
+
   function renderRecentStrip() {
     recentStrip.replaceChildren();
     if (!state.recentCaptured.length) {
@@ -167,7 +183,7 @@ export function createCaptureController(state, callbacks) {
     }
     for (const p of state.recentCaptured) {
       const hasWarn = Boolean(p.qa_flags && p.qa_flags.length);
-      const chip = el(
+      const chipBtn = el(
         "button",
         {
           class: "thumb-chip",
@@ -182,7 +198,26 @@ export function createCaptureController(state, callbacks) {
           ]),
         ]
       );
-      recentStrip.appendChild(chip);
+      const delBtn = el("button", {
+        class: "thumb-del-btn",
+        type: "button",
+        title: `删除第 #${p.seq_no} 页废片`,
+        "aria-label": `删除第 #${p.seq_no} 页废片`,
+        text: "×",
+        onclick: async (e) => {
+          e.stopPropagation();
+          try {
+            await apiJson(`/api/pages/${p.id}`, { method: "DELETE" });
+            state.recentCaptured = state.recentCaptured.filter((x) => x.id !== p.id);
+            renderRecentStrip();
+            callbacks.onCaptured();
+            showToast(`已移除第 #${p.seq_no} 页废片`, "ok");
+          } catch (err) {
+            showToast(err.message, "danger");
+          }
+        },
+      });
+      recentStrip.appendChild(el("div", { class: "thumb-chip-wrap" }, [chipBtn, delBtn]));
     }
   }
 
@@ -604,6 +639,20 @@ export function createCaptureController(state, callbacks) {
     }
   });
 
+  wireTwoStepAction(document.getElementById("clearBookPagesBtn"), "确认清空本书？", async () => {
+    if (!state.currentBookId) return;
+    try {
+      const res = await apiJson(`/api/books/${state.currentBookId}/pages`, { method: "DELETE" });
+      state.recentCaptured = [];
+      browserSmartTrigger.resetLastHash();
+      renderRecentStrip();
+      callbacks.onCaptured();
+      showToast(`已清空当前书目（移除 ${res.deleted_count || 0} 页）`, "ok");
+    } catch (err) {
+      showToast(err.message, "danger");
+    }
+  });
+
   return {
     applyBookProfile,
     refreshMobileQr,
@@ -611,5 +660,6 @@ export function createCaptureController(state, callbacks) {
     triggerShutter,
     undoLast: () => document.getElementById("undoLastCaptureBtn").click(),
     renderRecentStrip,
+    loadRecentFromBook,
   };
 }

@@ -17,6 +17,8 @@ export function createReviewAndPipelineController(state, callbacks) {
   let currentTotal = 0;
   let currentList = [];
   let selectedPage = null;
+  let multiSelectMode = false;
+  const selectedPageIds = new Set();
 
   // Pipeline Monitor elements
   const kpiTotal = document.getElementById("kpiTotal");
@@ -44,6 +46,24 @@ export function createReviewAndPipelineController(state, callbacks) {
   const reviewFlagRow = document.getElementById("reviewFlagRow");
   const reviewTextEditor = document.getElementById("reviewTextEditor");
   const recleanModeSelect = document.getElementById("recleanModeSelect");
+  const toggleMultiSelectBtn = document.getElementById("toggleMultiSelectBtn");
+  const batchDeleteBar = document.getElementById("batchDeleteBar");
+  const selectAllReviewBtn = document.getElementById("selectAllReviewBtn");
+  const batchDeleteSelectedBtn = document.getElementById("batchDeleteSelectedBtn");
+  const cancelMultiSelectBtn = document.getElementById("cancelMultiSelectBtn");
+  const deleteFlaggedBtn = document.getElementById("deleteFlaggedBtn");
+
+  function syncMultiSelectUi() {
+    if (toggleMultiSelectBtn) {
+      toggleMultiSelectBtn.textContent = multiSelectMode ? "退出多选" : "多选删废";
+    }
+    if (batchDeleteBar) {
+      batchDeleteBar.classList.toggle("hidden", !multiSelectMode);
+    }
+    if (batchDeleteSelectedBtn && batchDeleteSelectedBtn.dataset.armed !== "1") {
+      batchDeleteSelectedBtn.textContent = selectedPageIds.size ? `删选中 (${selectedPageIds.size})` : "删选中";
+    }
+  }
 
   function setSliderPercent(pct) {
     const clamped = Math.max(0, Math.min(100, Number(pct)));
@@ -238,37 +258,77 @@ export function createReviewAndPipelineController(state, callbacks) {
 
     for (const p of currentList) {
       const isSelected = selectedPage && selectedPage.id === p.id;
+      const isChecked = selectedPageIds.has(p.id);
       const hasWarn = p.qa_flags && p.qa_flags.length > 0;
+      const cardNodes = [
+        el("img", {
+          src: `/api/pages/${p.id}/image/thumb?t=${encodeURIComponent(p.updated_at || "")}`,
+          loading: "lazy",
+          alt: `第 ${p.seq_no} 页`,
+        }),
+        el("div", { class: "review-card-info" }, [
+          el("span", { text: `#${p.seq_no}${p.spread_side !== "S" ? p.spread_side : ""}` }),
+          el("span", {
+            text: translateStatus(p.status),
+            style: `color:${
+              p.status === "APPROVED"
+                ? "var(--ok)"
+                : hasWarn || p.status === "NEEDS_REVIEW"
+                ? "var(--warn)"
+                : "var(--muted)"
+            }`,
+          }),
+        ]),
+      ];
+      if (multiSelectMode) {
+        cardNodes.unshift(
+          el("span", {
+            class: `review-check-dot${isChecked ? " is-checked" : ""}`,
+            text: isChecked ? "✓" : "",
+            "aria-hidden": "true",
+          })
+        );
+      }
       const card = el(
         "button",
         {
           type: "button",
-          class: `review-card${isSelected ? " is-selected" : ""}`,
+          class: `review-card${isSelected ? " is-selected" : ""}${multiSelectMode && isChecked ? " is-checked" : ""}`,
           "data-page-id": String(p.id),
-          onclick: () => selectPage(p.id),
+          onclick: () => {
+            if (multiSelectMode) {
+              if (selectedPageIds.has(p.id)) selectedPageIds.delete(p.id);
+              else selectedPageIds.add(p.id);
+              syncMultiSelectUi();
+              renderGallery();
+              return;
+            }
+            selectPage(p.id);
+          },
         },
-        [
-          el("img", {
-            src: `/api/pages/${p.id}/image/thumb?t=${encodeURIComponent(p.updated_at || "")}`,
-            loading: "lazy",
-            alt: `第 ${p.seq_no} 页`,
-          }),
-          el("div", { class: "review-card-info" }, [
-            el("span", { text: `#${p.seq_no}${p.spread_side !== "S" ? p.spread_side : ""}` }),
-            el("span", {
-              text: translateStatus(p.status),
-              style: `color:${
-                p.status === "APPROVED"
-                  ? "var(--ok)"
-                  : hasWarn || p.status === "NEEDS_REVIEW"
-                  ? "var(--warn)"
-                  : "var(--muted)"
-              }`,
-            }),
-          ]),
-        ]
+        cardNodes
       );
-      reviewGallery.appendChild(card);
+      const quickDelBtn = el("button", {
+        type: "button",
+        class: "review-card-del",
+        title: `删除第 #${p.seq_no} 页废片`,
+        "aria-label": `删除第 #${p.seq_no} 页废片`,
+        text: "×",
+        onclick: async (e) => {
+          e.stopPropagation();
+          try {
+            await apiJson(`/api/pages/${p.id}`, { method: "DELETE" });
+            selectedPageIds.delete(p.id);
+            if (selectedPage && selectedPage.id === p.id) selectedPage = null;
+            showToast(`已移除第 #${p.seq_no} 页废片`, "ok");
+            await refreshPageList();
+            callbacks.onPagesChanged?.();
+          } catch (err) {
+            showToast(err.message, "danger");
+          }
+        },
+      });
+      reviewGallery.appendChild(el("div", { class: "review-card-wrap" }, [card, quickDelBtn]));
     }
   }
 
@@ -406,7 +466,70 @@ export function createReviewAndPipelineController(state, callbacks) {
       showToast(`已删除第 #${doomed.seq_no} 页废片`, "ok");
       selectedPage = null;
       await refreshPageList();
-      callbacks.onStatsNeeded();
+      callbacks.onPagesChanged?.();
+    } catch (err) {
+      showToast(err.message, "danger");
+    }
+  });
+
+  if (toggleMultiSelectBtn) {
+    toggleMultiSelectBtn.addEventListener("click", () => {
+      multiSelectMode = !multiSelectMode;
+      if (!multiSelectMode) selectedPageIds.clear();
+      syncMultiSelectUi();
+      renderGallery();
+    });
+  }
+  if (cancelMultiSelectBtn) {
+    cancelMultiSelectBtn.addEventListener("click", () => {
+      multiSelectMode = false;
+      selectedPageIds.clear();
+      syncMultiSelectUi();
+      renderGallery();
+    });
+  }
+  if (selectAllReviewBtn) {
+    selectAllReviewBtn.addEventListener("click", () => {
+      const allPicked = currentList.length > 0 && currentList.every((p) => selectedPageIds.has(p.id));
+      if (allPicked) currentList.forEach((p) => selectedPageIds.delete(p.id));
+      else currentList.forEach((p) => selectedPageIds.add(p.id));
+      syncMultiSelectUi();
+      renderGallery();
+    });
+  }
+  wireTwoStepAction(batchDeleteSelectedBtn, "确认删除选中？", async () => {
+    if (!state.currentBookId || !selectedPageIds.size) {
+      showToast("请先勾选要删除的废片", "warn");
+      return;
+    }
+    try {
+      const ids = Array.from(selectedPageIds);
+      const res = await apiJson(`/api/books/${state.currentBookId}/pages/batch-delete`, {
+        method: "POST",
+        body: { page_ids: ids },
+      });
+      if (selectedPage && selectedPageIds.has(selectedPage.id)) selectedPage = null;
+      selectedPageIds.clear();
+      multiSelectMode = false;
+      syncMultiSelectUi();
+      await refreshPageList();
+      callbacks.onPagesChanged?.();
+      showToast(`已批量删除 ${res.deleted_count || 0} 页废片`, "ok");
+    } catch (err) {
+      showToast(err.message, "danger");
+    }
+  });
+  wireTwoStepAction(deleteFlaggedBtn, "确认清理全部异常页？", async () => {
+    if (!state.currentBookId) return;
+    try {
+      const res = await apiJson(`/api/books/${state.currentBookId}/pages/delete-flagged`, {
+        method: "POST",
+      });
+      selectedPage = null;
+      selectedPageIds.clear();
+      await refreshPageList();
+      callbacks.onPagesChanged?.();
+      showToast(`已一键清理 ${res.deleted_count || 0} 张异常废片`, "ok");
     } catch (err) {
       showToast(err.message, "danger");
     }

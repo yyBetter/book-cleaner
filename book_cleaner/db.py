@@ -62,6 +62,7 @@ DEFAULT_EXCEL_RULES: dict[str, Any] = {
     "remove_running_headers": True,
     "deduplicate_entries": True,
     "min_confidence_warn": 0.82,
+    "catboost_mode": False,
 }
 
 DEFAULT_EXCEL_COLUMNS: list[dict[str, Any]] = [
@@ -72,6 +73,24 @@ DEFAULT_EXCEL_COLUMNS: list[dict[str, Any]] = [
     {"key": "clean_content", "header": "清洗后正文", "source_type": "builtin", "pattern": "clean_content", "required": True},
     {"key": "dates_found", "header": "规范化日期", "source_type": "regex", "pattern": r"\b\d{4}-\d{2}-\d{2}\b", "required": False},
     {"key": "key_values", "header": "关键参数", "source_type": "kv", "pattern": "*", "required": False},
+    {"key": "ocr_confidence", "header": "识别置信度", "source_type": "builtin", "pattern": "ocr_confidence", "required": False},
+    {"key": "qa_status", "header": "质检状态", "source_type": "builtin", "pattern": "qa_status", "required": False},
+]
+
+CATBOOST_BATCH_RULES: dict[str, Any] = {
+    **DEFAULT_EXCEL_RULES,
+    "catboost_mode": True,
+}
+
+CATBOOST_BATCH_COLUMNS: list[dict[str, Any]] = [
+    {"key": "batch_id", "header": "批次号", "source_type": "builtin", "pattern": "batch_id", "required": False},
+    {"key": "record_dim", "header": "记录维度", "source_type": "builtin", "pattern": "record_dim", "required": False},
+    {"key": "record_date", "header": "规范化日期", "source_type": "regex", "pattern": r"\b\d{4}-\d{2}-\d{2}\b", "required": False},
+    {"key": "asset_id", "header": "设备/卷宗编号", "source_type": "builtin", "pattern": "isbn", "required": False},
+    {"key": "page_no", "header": "页码", "source_type": "builtin", "pattern": "page_no", "required": False},
+    {"key": "entry_title", "header": "记录小节/标题", "source_type": "builtin", "pattern": "entry_title", "required": False},
+    {"key": "clean_content", "header": "SOP与过程正文", "source_type": "builtin", "pattern": "clean_content", "required": True},
+    {"key": "key_values", "header": "参数键值对", "source_type": "kv", "pattern": "*", "required": False},
     {"key": "ocr_confidence", "header": "识别置信度", "source_type": "builtin", "pattern": "ocr_confidence", "required": False},
     {"key": "qa_status", "header": "质检状态", "source_type": "builtin", "pattern": "qa_status", "required": False},
 ]
@@ -257,6 +276,29 @@ class Database:
                         "提取表格明细",
                         json.dumps(DEFAULT_EXCEL_RULES, ensure_ascii=False),
                         json.dumps(DEFAULT_EXCEL_COLUMNS, ensure_ascii=False),
+                        now,
+                        now,
+                    ),
+                )
+            cb_row = conn.execute(
+                "SELECT 1 FROM excel_templates WHERE name = ? LIMIT 1",
+                ("批次记录与 CatBoost 建模标准模板",),
+            ).fetchone()
+            if cb_row is None:
+                conn.execute(
+                    """
+                    INSERT INTO excel_templates(
+                        name, description, entry_sheet_name, table_sheet_name,
+                        rules_json, columns_json, created_at, updated_at
+                    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+                    """,
+                    (
+                        "批次记录与 CatBoost 建模标准模板",
+                        "复杂SOP+多维批次表格自动沉淀为标准化宽表与CatBoost字段契约",
+                        "正文结构化条目",
+                        "提取表格明细",
+                        json.dumps(CATBOOST_BATCH_RULES, ensure_ascii=False),
+                        json.dumps(CATBOOST_BATCH_COLUMNS, ensure_ascii=False),
                         now,
                         now,
                     ),
@@ -547,6 +589,59 @@ class Database:
             conn.execute("DELETE FROM pages WHERE id = ?", (int(page_id),))
         return page
 
+    def delete_pages_batch(self, book_id: int, page_ids: list[int]) -> list[dict[str, Any]]:
+        clean_ids = sorted({int(pid) for pid in page_ids if int(pid) > 0})
+        if not clean_ids:
+            return []
+        placeholders = ",".join("?" for _ in clean_ids)
+        conn = self._get_conn()
+        with self._write_lock:
+            rows = conn.execute(
+                f"SELECT * FROM pages WHERE book_id = ? AND id IN ({placeholders})",
+                [int(book_id), *clean_ids],
+            ).fetchall()
+            deleted = [
+                p for p in (self._row_to_page(r, include_blocks=False) for r in rows) if p is not None
+            ]
+            if deleted:
+                conn.execute(
+                    f"DELETE FROM pages WHERE book_id = ? AND id IN ({placeholders})",
+                    [int(book_id), *clean_ids],
+                )
+        return deleted
+
+    def delete_flagged_pages(self, book_id: int) -> list[dict[str, Any]]:
+        conn = self._get_conn()
+        where = (
+            "book_id = ? AND "
+            "(qa_flags_json != '[]' OR is_duplicate = 1 OR status IN ('NEEDS_REVIEW', 'FAILED'))"
+        )
+        with self._write_lock:
+            rows = conn.execute(f"SELECT * FROM pages WHERE {where}", (int(book_id),)).fetchall()
+            deleted = [
+                p for p in (self._row_to_page(r, include_blocks=False) for r in rows) if p is not None
+            ]
+            if deleted:
+                conn.execute(f"DELETE FROM pages WHERE {where}", (int(book_id),))
+        return deleted
+
+    def clear_book_pages(self, book_id: int) -> list[dict[str, Any]]:
+        conn = self._get_conn()
+        with self._write_lock:
+            rows = conn.execute("SELECT * FROM pages WHERE book_id = ?", (int(book_id),)).fetchall()
+            deleted = [
+                p for p in (self._row_to_page(r, include_blocks=False) for r in rows) if p is not None
+            ]
+            conn.execute("BEGIN IMMEDIATE;")
+            try:
+                conn.execute("DELETE FROM structured_rows WHERE book_id = ?", (int(book_id),))
+                conn.execute("DELETE FROM pages WHERE book_id = ?", (int(book_id),))
+                conn.execute("COMMIT;")
+            except Exception:
+                conn.execute("ROLLBACK;")
+                raise
+        return deleted
+
     def recover_stale_locks(self) -> dict[str, int]:
         """Reset any in-flight worker states after an unexpected restart."""
         transitions = {
@@ -710,6 +805,7 @@ class Database:
         status_filter: str | None = None,
         qa_filter: str | None = None,
         search: str | None = None,
+        order: str = "asc",
         limit: int = 40,
         offset: int = 0,
     ) -> tuple[list[dict[str, Any]], int]:
@@ -750,6 +846,7 @@ class Database:
         ).fetchone()
         total_count = int(total_row["cnt"]) if total_row else 0
 
+        order_sql = "seq_no DESC, id DESC" if str(order).lower().strip() == "desc" else "seq_no ASC, id ASC"
         rows = conn.execute(
             f"""
             SELECT id, book_id, seq_no, spread_side, source_type, source_ref,
@@ -759,7 +856,7 @@ class Database:
                    llm_status, error_msg, retry_count, created_at, updated_at
             FROM pages
             WHERE {where_sql}
-            ORDER BY seq_no ASC, id ASC
+            ORDER BY {order_sql}
             LIMIT ? OFFSET ?
             """,
             [*params, int(limit), int(offset)],

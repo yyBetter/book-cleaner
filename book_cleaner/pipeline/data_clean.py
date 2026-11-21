@@ -19,6 +19,14 @@ _SEP_DATE_RE = re.compile(r"(?<!\d)(\d{4})[./](\d{1,2})[./](\d{1,2})(?!\d)")
 _KV_PAIR_RE = re.compile(
     r"([^\n:：;；,，。、\s]{1,20})\s*[:：]\s*([^\n;；，。]+?)(?=(?:\s*[,，;；。]\s*[^\n:：;；,，。]+[:：])|[;；，。\n]|$)"
 )
+_BATCH_ID_RE = re.compile(
+    r"(?:批次号?|生产批号|批号|Batch\s*ID|Batch|Lot)\s*[:：#]?\s*([A-Za-z0-9][A-Za-z0-9_.-]{2,31})",
+    re.IGNORECASE,
+)
+_NUMERIC_UNIT_RE = re.compile(
+    r"^\s*([+-]?\d+(?:\.\d+)?)\s*(?:℃|°C|°F|%|MPa|kPa|Pa|L/h|mL/min|mL|kg/h|kg|g/L|mg/L|g|mg|rpm|r/min|hr|h|min|s|px|mm|cm|pH|mV)?\s*$",
+    re.IGNORECASE,
+)
 
 _FULLWIDTH_MAP = {
     **{ord("０") + i: ord("0") + i for i in range(10)},
@@ -41,6 +49,7 @@ class CleaningRules:
     remove_running_headers: bool = True
     deduplicate_entries: bool = True
     min_confidence_warn: float = 0.82
+    catboost_mode: bool = False
 
     @classmethod
     def from_dict(cls, data: dict[str, Any] | None) -> "CleaningRules":
@@ -53,7 +62,46 @@ class CleaningRules:
             remove_running_headers=bool(data.get("remove_running_headers", True)),
             deduplicate_entries=bool(data.get("deduplicate_entries", True)),
             min_confidence_warn=float(data.get("min_confidence_warn", 0.82)),
+            catboost_mode=bool(data.get("catboost_mode", False)),
         )
+
+
+def parse_numeric_value(raw: str) -> float | None:
+    """Parse a clean finite float from scalar text with optional industrial unit suffix."""
+    if raw is None:
+        return None
+    s = str(raw).replace(",", "").strip()
+    if not s:
+        return None
+    m = _NUMERIC_UNIT_RE.match(s)
+    if not m:
+        return None
+    try:
+        val = float(m.group(1))
+    except ValueError:
+        return None
+    return val if math.isfinite(val) else None
+
+
+def detect_batch_id(text: str, current_batch_id: str, fallback: str) -> str:
+    """Extract batch identifier from page text, or carry forward current batch ID."""
+    if text:
+        m = _BATCH_ID_RE.search(text)
+        if m:
+            return m.group(1).strip()
+    return current_batch_id or fallback
+
+
+def classify_record_dim(title: str, content: str) -> str:
+    """Classify a narrative block into SOP规范, 化验检测, 异常交接, or 过程说明."""
+    combined = f"{title}\n{content}".lower()
+    if any(k in combined for k in ("sop", "规程", "操作步骤", "标准操作", "注意事项", "工艺要求", "工艺规范", "门禁")):
+        return "SOP规范"
+    if any(k in combined for k in ("化验", "检测", "效价", "纯度", "镜检", "菌检", "采样", "ph", "od")):
+        return "化验检测"
+    if any(k in combined for k in ("异常", "交接", "故障", "报警", "偏差", "超标", "报废", "处理说明")):
+        return "异常交接"
+    return "过程说明"
 
 
 def sanitize_excel_text(value: Any) -> str:
@@ -390,6 +438,8 @@ def _evaluate_column(
     qa_status: str,
     source_ref: str,
     kv_cache: dict[str, str],
+    batch_id: str = "",
+    record_dim: str = "过程说明",
 ) -> str:
     src_type = str(col.get("source_type", "builtin")).lower()
     pattern = str(col.get("pattern", "")).strip()
@@ -406,6 +456,8 @@ def _evaluate_column(
             "ocr_confidence": f"{ocr_confidence * 100:.1f}%",
             "qa_status": qa_status,
             "source_ref": source_ref,
+            "batch_id": batch_id,
+            "record_dim": record_dim,
         }
         return sanitize_excel_text(mapping.get(pattern, ""))
 
@@ -510,6 +562,9 @@ def extract_book_structured_data(
     entry_count = 0
     warning_rows = 0
     current_chapter = ""
+    fallback_batch = sanitize_excel_text(book.get("isbn") or book.get("title") or "BATCH_001")
+    fallback_batch = re.sub(r"\s+", "_", fallback_batch).strip("_")[:32] or "BATCH_001"
+    current_batch_id = ""
 
     for page in pages:
         page_id = page.get("id")
@@ -517,6 +572,8 @@ def extract_book_structured_data(
         conf = float(page.get("ocr_confidence", 0.0))
         qa_flags = list(page.get("qa_flags") or [])
         source_ref = str(page.get("source_ref") or "")
+        page_txt = normalize_text(str(page.get("clean_text") or page.get("ocr_text") or ""), rules)
+        current_batch_id = detect_batch_id(page_txt, current_batch_id, fallback_batch)
 
         page_warnings: list[str] = []
         if 0.0 < conf < rules.min_confidence_warn:
@@ -540,7 +597,7 @@ def extract_book_structured_data(
                     "page_no": page_no,
                     "table_index": t_idx,
                     "row_index": 0,
-                    "data": {"is_header": True, "cells": headers},
+                    "data": {"is_header": True, "cells": headers, "batch_id": current_batch_id},
                     "warnings": hdr_warnings,
                     "row_hash": "",
                     "ocr_confidence": conf,
@@ -560,7 +617,7 @@ def extract_book_structured_data(
                         "page_no": page_no,
                         "table_index": t_idx,
                         "row_index": r_idx,
-                        "data": {"is_header": False, "cells": clean_cells},
+                        "data": {"is_header": False, "cells": clean_cells, "batch_id": current_batch_id},
                         "warnings": r_warnings,
                         "row_hash": "",
                         "ocr_confidence": conf,
@@ -581,6 +638,8 @@ def extract_book_structured_data(
             seen_hashes.add(r_hash)
 
             kv_cache = _extract_kv_pairs(ent["clean_content"])
+            entry_batch_id = detect_batch_id(ent["clean_content"], current_batch_id, fallback_batch)
+            record_dim = classify_record_dim(ent["entry_title"], ent["clean_content"])
             row_warnings = list(page_warnings)
 
             # Evaluate user columns (except qa_status which depends on row_warnings)
@@ -600,6 +659,8 @@ def extract_book_structured_data(
                     qa_status="",
                     source_ref=source_ref,
                     kv_cache=kv_cache,
+                    batch_id=entry_batch_id,
+                    record_dim=record_dim,
                 )
                 row_data[key] = val
                 if col.get("required") and not val.strip():

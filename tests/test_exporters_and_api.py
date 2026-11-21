@@ -185,3 +185,49 @@ def test_lan_ip_scoring_skips_vpn_tun():
     assert _score_lan_candidate("lo0", "127.0.0.1") is None
     assert _score_lan_candidate("en0", "192.168.1.4") > _score_lan_candidate("en5", "10.0.0.5")
 
+
+def test_waste_page_removal_batch_flagged_clear_and_book_fallback(tmp_path):
+    cfg = AppConfig(data_dir=tmp_path / "data", clean_workers=1, ocr_workers=1)
+    app = create_app(cfg, start_workers=True, ocr_engine=_FastStubOCREngine())
+    samples = dict(generate_demo_pages())
+
+    with TestClient(app) as client:
+        book = client.post("/api/books", json={"title": "删废测试册"}).json()
+        bid = book["id"]
+        for fname in ("03_double_spread.jpg", "05_blurry_test_shot.jpg", "04_tilted_clean_page.jpg"):
+            res = client.post(
+                f"/api/books/{bid}/capture",
+                files={"file": (fname, samples[fname], "image/jpeg")},
+            )
+            assert res.status_code == 200
+        _wait_until_settled(client, bid, expected_min=3)
+
+        # Verify desc order returns newest first
+        desc_res = client.get(f"/api/books/{bid}/pages?order=desc&limit=10").json()
+        seqs = [p["seq_no"] for p in desc_res["items"]]
+        assert seqs == sorted(seqs, reverse=True)
+
+        # Flagged cleanup removes blurry page (#2)
+        del_flag = client.post(f"/api/books/{bid}/pages/delete-flagged").json()
+        assert del_flag["deleted_count"] >= 1
+
+        # Batch delete remaining first page
+        left_pages = client.get(f"/api/books/{bid}/pages").json()["items"]
+        assert len(left_pages) >= 1
+        del_batch = client.post(
+            f"/api/books/{bid}/pages/batch-delete",
+            json={"page_ids": [left_pages[0]["id"]]},
+        ).json()
+        assert del_batch["deleted_count"] == 1
+
+        # Clear remaining pages in book
+        clr = client.delete(f"/api/books/{bid}/pages").json()
+        assert clr["deleted_count"] == len(left_pages) - 1
+        assert client.get(f"/api/books/{bid}/pages").json()["total"] == 0
+
+        # Deleting a book returns fallback_book_id so UI never loses context
+        del_book = client.delete(f"/api/books/{bid}").json()
+        assert del_book["deleted"] is True
+        assert del_book["fallback_book_id"] >= 1
+
+

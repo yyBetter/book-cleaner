@@ -12,7 +12,13 @@ from openpyxl import Workbook, load_workbook
 from openpyxl.styles import Alignment, Border, Font, PatternFill, Side
 from openpyxl.utils import get_column_letter
 
-from book_cleaner.pipeline.data_clean import sanitize_excel_text
+from book_cleaner.pipeline.data_clean import (
+    _extract_kv_pairs,
+    classify_record_dim,
+    detect_batch_id,
+    parse_numeric_value,
+    sanitize_excel_text,
+)
 
 
 _HEADER_AUTO_MAP: dict[str, tuple[str, str]] = {
@@ -20,6 +26,11 @@ _HEADER_AUTO_MAP: dict[str, tuple[str, str]] = {
     "书名/卷宗": ("builtin", "book_title"),
     "作者": ("builtin", "author"),
     "isbn": ("builtin", "isbn"),
+    "批次号": ("builtin", "batch_id"),
+    "生产批号": ("builtin", "batch_id"),
+    "批号": ("builtin", "batch_id"),
+    "batch_id": ("builtin", "batch_id"),
+    "记录维度": ("builtin", "record_dim"),
     "页码": ("builtin", "page_no"),
     "章节": ("builtin", "chapter"),
     "所属章节": ("builtin", "chapter"),
@@ -294,5 +305,257 @@ def export_excel_workbook(
 
     _auto_fit_columns(ws_sum, min_width=18, max_width=64)
 
+    if bool(rules.get("catboost_mode", False)):
+        _append_catboost_sheets(
+            wb=wb,
+            book=book,
+            template=template,
+            structured_rows=structured_rows,
+            header_fill=header_fill,
+            header_font=header_font,
+            cell_border=cell_border,
+            body_align=body_align,
+        )
+
     wb.save(str(out_path))
     return out_path
+
+
+_DATE_TOKEN_RE = re.compile(r"\b\d{4}-\d{2}-\d{2}\b")
+_MAX_CATBOOST_NUM_DIMS = 16
+
+
+def _clean_dim_slug(name: str) -> str:
+    cleaned = re.sub(r"[\s/\\()（）\[\]{}:：]+", "_", (name or "").strip()).strip("_")
+    return cleaned[:28] or "metric"
+
+
+def _append_catboost_sheets(
+    *,
+    wb: Workbook,
+    book: dict[str, Any],
+    template: dict[str, Any],
+    structured_rows: list[dict[str, Any]],
+    header_fill: PatternFill,
+    header_font: Font,
+    cell_border: Border,
+    body_align: Alignment,
+) -> None:
+    """Append `CatBoost_特征宽表` (1 row/batch, native floats) and `CatBoost_字段契约`."""
+    columns = list(template.get("columns") or [])
+    fallback_batch = sanitize_excel_text(book.get("isbn") or book.get("title") or "BATCH_001")
+    fallback_batch = re.sub(r"\s+", "_", fallback_batch).strip("_")[:32] or "BATCH_001"
+    default_asset = sanitize_excel_text(book.get("isbn") or book.get("title") or "ASSET_01")
+
+    batches: dict[str, dict[str, Any]] = {}
+    discovered_dims: list[str] = []
+    table_headers_by_key: dict[tuple[int, int], list[str]] = {}
+
+    def _ensure_batch(bid: str) -> dict[str, Any]:
+        if bid not in batches:
+            batches[bid] = {
+                "batch_id": bid,
+                "record_date": "",
+                "asset_id": default_asset,
+                "pages": set(),
+                "tables": set(),
+                "table_row_count": 0,
+                "sop_entry_count": 0,
+                "anomaly_note_count": 0,
+                "sop_notes": [],
+                "confs": [],
+                "review_required": 0,
+                "num_series": {},
+            }
+        return batches[bid]
+
+    def _record_dim_val(bucket: dict[str, Any], raw_dim: str, raw_val: str) -> None:
+        val = parse_numeric_value(raw_val)
+        if val is None:
+            return
+        dim = _clean_dim_slug(raw_dim)
+        if dim in ("页码", "page_no", "序号", "编号"):
+            return
+        if dim not in discovered_dims:
+            if len(discovered_dims) >= _MAX_CATBOOST_NUM_DIMS:
+                return
+            discovered_dims.append(dim)
+        bucket["num_series"].setdefault(dim, []).append(val)
+
+    for r in structured_rows:
+        kind = str(r.get("row_kind") or "ENTRY")
+        data = r.get("data") or {}
+        warns = r.get("warnings") or []
+        page_no = int(r.get("page_no", 0))
+        conf = float(r.get("ocr_confidence", 0.0))
+
+        if kind == "TABLE":
+            tbl_key = (page_no, int(r.get("table_index", 0)))
+            bid = sanitize_excel_text(data.get("batch_id") or "") or fallback_batch
+            bucket = _ensure_batch(bid)
+            if page_no > 0:
+                bucket["pages"].add(page_no)
+            bucket["tables"].add(tbl_key)
+            if conf > 0:
+                bucket["confs"].append(conf)
+            if warns:
+                bucket["review_required"] = 1
+                bucket["anomaly_note_count"] += 1
+
+            cells = [sanitize_excel_text(c) for c in (data.get("cells") or [])]
+            if data.get("is_header"):
+                table_headers_by_key[tbl_key] = cells
+            else:
+                bucket["table_row_count"] += 1
+                hdrs = table_headers_by_key.get(tbl_key, [])
+                for c_idx, cell_val in enumerate(cells):
+                    if not bucket["record_date"]:
+                        dm = _DATE_TOKEN_RE.search(cell_val)
+                        if dm:
+                            bucket["record_date"] = dm.group(0)
+                    col_name = hdrs[c_idx] if c_idx < len(hdrs) and hdrs[c_idx] else f"表列_{c_idx + 1}"
+                    _record_dim_val(bucket, col_name, cell_val)
+            continue
+
+        # ENTRY row
+        content_key = next((c.get("key") for c in columns if c.get("pattern") == "clean_content"), "clean_content")
+        title_key = next((c.get("key") for c in columns if c.get("pattern") == "entry_title"), "entry_title")
+        batch_key = next((c.get("key") for c in columns if c.get("pattern") == "batch_id"), "batch_id")
+        dim_key = next((c.get("key") for c in columns if c.get("pattern") == "record_dim"), "record_dim")
+        asset_key = next((c.get("key") for c in columns if c.get("pattern") == "isbn"), "asset_id")
+        date_key = next((c.get("key") for c in columns if "date" in str(c.get("key", "")).lower()), "record_date")
+
+        body_txt = sanitize_excel_text(data.get(content_key) or "")
+        title_txt = sanitize_excel_text(data.get(title_key) or "")
+        bid = sanitize_excel_text(data.get(batch_key) or "") or detect_batch_id(body_txt, "", fallback_batch)
+        r_dim = sanitize_excel_text(data.get(dim_key) or "") or classify_record_dim(title_txt, body_txt)
+
+        bucket = _ensure_batch(bid)
+        if page_no > 0:
+            bucket["pages"].add(page_no)
+        if conf > 0:
+            bucket["confs"].append(conf)
+        if data.get(asset_key):
+            bucket["asset_id"] = sanitize_excel_text(data.get(asset_key))
+        if not bucket["record_date"]:
+            raw_d = sanitize_excel_text(data.get(date_key) or "")
+            dm = _DATE_TOKEN_RE.search(raw_d) or _DATE_TOKEN_RE.search(body_txt)
+            if dm:
+                bucket["record_date"] = dm.group(0)
+
+        if r_dim == "SOP规范":
+            bucket["sop_entry_count"] += 1
+        if r_dim == "异常交接" or warns:
+            bucket["anomaly_note_count"] += 1
+        if warns:
+            bucket["review_required"] = 1
+        if body_txt:
+            bucket["sop_notes"].append(body_txt)
+        for k, v in _extract_kv_pairs(body_txt).items():
+            _record_dim_val(bucket, k, v)
+
+    # Sheet 5: CatBoost_特征宽表
+    ws_cb = wb.create_sheet(title="CatBoost_特征宽表")
+    base_cols = [
+        "batch_id",
+        "record_date",
+        "asset_id",
+        "page_count",
+        "table_count",
+        "table_row_count",
+        "sop_entry_count",
+        "anomaly_note_count",
+    ]
+    num_cols: list[tuple[str, str, str]] = []
+    for dim in discovered_dims:
+        num_cols.extend(
+            [
+                (f"{dim}_mean", dim, "mean"),
+                (f"{dim}_min", dim, "min"),
+                (f"{dim}_max", dim, "max"),
+                (f"{dim}_last", dim, "last"),
+            ]
+        )
+    tail_cols = ["sop_notes_text", "avg_ocr_conf", "review_required"]
+    all_headers = base_cols + [h for h, _, _ in num_cols] + tail_cols
+    ws_cb.append(all_headers)
+    for cell in ws_cb[1]:
+        cell.fill = header_fill
+        cell.font = header_font
+        cell.border = cell_border
+        cell.alignment = Alignment(vertical="center", horizontal="left")
+
+    for bid, b in batches.items():
+        avg_conf = round(sum(b["confs"]) / len(b["confs"]), 4) if b["confs"] else None
+        sop_text = sanitize_excel_text(" | ".join(b["sop_notes"]))[:2000]
+        row_vals: list[Any] = [
+            bid,
+            b["record_date"],
+            b["asset_id"],
+            len(b["pages"]),
+            len(b["tables"]),
+            b["table_row_count"],
+            b["sop_entry_count"],
+            b["anomaly_note_count"],
+        ]
+        for _, dim, agg in num_cols:
+            vals = b["num_series"].get(dim) or []
+            if not vals:
+                row_vals.append(None)
+            elif agg == "mean":
+                row_vals.append(round(sum(vals) / len(vals), 4))
+            elif agg == "min":
+                row_vals.append(round(min(vals), 4))
+            elif agg == "max":
+                row_vals.append(round(max(vals), 4))
+            else:
+                row_vals.append(round(vals[-1], 4))
+        row_vals.extend([sop_text, avg_conf, int(b["review_required"])])
+        ws_cb.append(row_vals)
+        for cell in ws_cb[ws_cb.max_row]:
+            cell.border = cell_border
+            cell.alignment = body_align
+
+    ws_cb.freeze_panes = "A2"
+    if ws_cb.max_row >= 1 and ws_cb.max_column >= 1:
+        ws_cb.auto_filter.ref = ws_cb.dimensions
+    _auto_fit_columns(ws_cb, min_width=14, max_width=46)
+
+    # Sheet 6: CatBoost_字段契约
+    ws_schema = wb.create_sheet(title="CatBoost_字段契约")
+    ws_schema.append(["column_name", "catboost_role", "dtype", "missing_policy", "description"])
+    for cell in ws_schema[1]:
+        cell.fill = header_fill
+        cell.font = header_font
+        cell.border = cell_border
+
+    contract_rows = [
+        ("batch_id", "meta_id", "string", "drop_row", "主建模粒度主键：一个批次一行；切分训练/验证集按时间+批次整批隔离，禁止同批拆散"),
+        ("record_date", "time_split", "date", "forward_fill", "批次规范化日期 (YYYY-MM-DD)，用于严格时间序切分验证集"),
+        ("asset_id", "cat_feature", "string", "empty_token", "设备/卷宗编号（传给 CatBoost cat_features）"),
+        ("page_count", "num_feature", "int", "zero", "本批次关联总页数"),
+        ("table_count", "num_feature", "int", "zero", "本批次提取表格数量"),
+        ("table_row_count", "num_feature", "int", "zero", "本批次表格数据总行数"),
+        ("sop_entry_count", "num_feature", "int", "zero", "SOP 工艺规范说明条目数"),
+        ("anomaly_note_count", "num_feature", "int", "zero", "交接/异常说明或质检告警条数"),
+    ]
+    agg_cn = {"mean": "均值", "min": "最小值", "max": "最大值", "last": "末次记录值"}
+    for h, dim, agg in num_cols:
+        contract_rows.append(
+            (h, "num_feature", "float", "native_nan", f"维度「{dim}」在批次内的{agg_cn[agg]}（已去单位转浮点，缺失保持空/NaN）")
+        )
+    contract_rows.extend(
+        [
+            ("sop_notes_text", "text_feature", "string", "empty_token", "拼接后的 SOP/过程/交接文本（传给 CatBoost text_features）"),
+            ("avg_ocr_conf", "num_feature", "float", "native_nan", "平均 OCR 识别置信度（0~1 浮点，用于数据质量加权或过滤）"),
+            ("review_required", "qa_gate", "int", "drop_row", "质量隔离门：0=可直接入训；1=含低置信或质检告警，禁止回流训练集"),
+        ]
+    )
+    for item in contract_rows:
+        ws_schema.append(list(item))
+        for cell in ws_schema[ws_schema.max_row]:
+            cell.border = cell_border
+            cell.alignment = body_align
+
+    ws_schema.freeze_panes = "A2"
+    _auto_fit_columns(ws_schema, min_width=16, max_width=60)

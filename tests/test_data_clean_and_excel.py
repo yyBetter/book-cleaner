@@ -10,13 +10,14 @@ from openpyxl import Workbook, load_workbook
 
 from book_cleaner.api import create_app
 from book_cleaner.config import AppConfig
-from book_cleaner.db import DEFAULT_EXCEL_COLUMNS
+from book_cleaner.db import CATBOOST_BATCH_COLUMNS, CATBOOST_BATCH_RULES, DEFAULT_EXCEL_COLUMNS
 from book_cleaner.demo_generator import generate_demo_pages
 from book_cleaner.pipeline.data_clean import (
     CleaningRules,
     detect_running_headers,
     extract_book_structured_data,
     normalize_text,
+    parse_numeric_value,
     sanitize_excel_text,
 )
 from book_cleaner.pipeline.excel_exporter import export_excel_workbook, read_headers_from_xlsx
@@ -321,3 +322,101 @@ def test_api_stage2_dataclean_and_xlsx_download(tmp_path):
             assert ws_t.cell(row=3, column=5).value == "清晰度>=80"
         finally:
             wb_out.close()
+
+
+def test_catboost_batch_sop_and_table_excel_contract(tmp_path):
+    assert parse_numeric_value("32.5℃") == 32.5
+    assert parse_numeric_value("98.4%") == 98.4
+    assert parse_numeric_value("0.18 MPa") == 0.18
+    assert parse_numeric_value("2026-03-15") is None
+    assert parse_numeric_value("-") is None
+
+    book = {"id": 9, "title": "生产批记录汇编", "isbn": "LINE-A-01"}
+    tpl = {
+        "id": 2,
+        "name": "批次记录与 CatBoost 建模标准模板",
+        "entry_sheet_name": "正文结构化条目",
+        "table_sheet_name": "提取表格明细",
+        "rules": dict(CATBOOST_BATCH_RULES),
+        "columns": list(CATBOOST_BATCH_COLUMNS),
+    }
+    pages = [
+        {
+            "id": 101,
+            "seq_no": 1,
+            "ocr_confidence": 0.96,
+            "qa_flags": [],
+            "clean_text": (
+                "## SOP操作规范\n"
+                "批次号: B20261101\n"
+                "日期: 2026年11月1日\n"
+                "标准操作步骤：严格控制罐温 31.0℃~32.5℃。\n\n"
+                "| 时刻 | 温度 | 纯度 | 压力 |\n"
+                "| --- | --- | --- | --- |\n"
+                "| 08h | 31.5℃ | 83.2% | 0.16 MPa |\n"
+                "| 12h | 32.5℃ | 85.4% | 0.18 MPa |\n"
+            ),
+        },
+        {
+            "id": 102,
+            "seq_no": 2,
+            "ocr_confidence": 0.92,
+            "qa_flags": [],
+            "clean_text": (
+                "## 异常交接记录\n"
+                "批次号: B20261102\n"
+                "2026-11-02 夜班微调补糖流速，过程指标稳态。\n\n"
+                "| 时刻 | 温度 | 纯度 |\n"
+                "| --- | --- | --- |\n"
+                "| 04h | 30.8℃ | 81.6% |\n"
+            ),
+        },
+    ]
+
+    rows, summary = extract_book_structured_data(book, pages, tpl)
+    assert summary["entries"] >= 2
+    assert summary["distinct_tables"] == 2
+
+    out_xlsx = tmp_path / "catboost_ready.xlsx"
+    export_excel_workbook(book, tpl, rows, summary, out_xlsx)
+
+    wb = load_workbook(out_xlsx, data_only=True)
+    try:
+        assert wb.sheetnames == [
+            "正文结构化条目",
+            "提取表格明细",
+            "异常待复核",
+            "清洗汇总报告",
+            "CatBoost_特征宽表",
+            "CatBoost_字段契约",
+        ]
+        ws_cb = wb["CatBoost_特征宽表"]
+        headers = [c.value for c in ws_cb[1]]
+        assert "batch_id" in headers
+        assert "温度_mean" in headers
+        assert "纯度_max" in headers
+        assert "压力_last" in headers
+        assert "sop_notes_text" in headers
+        assert "review_required" in headers
+        assert ws_cb.max_row == 3  # 2 batches + header
+
+        row1 = dict(zip(headers, [c.value for c in ws_cb[2]]))
+        row2 = dict(zip(headers, [c.value for c in ws_cb[3]]))
+        assert row1["batch_id"] == "B20261101"
+        assert row1["record_date"] == "2026-11-01"
+        assert abs(float(row1["温度_mean"]) - 32.0) < 1e-6
+        assert abs(float(row1["纯度_max"]) - 85.4) < 1e-6
+        assert abs(float(row1["压力_last"]) - 0.18) < 1e-6
+        assert row1["sop_entry_count"] >= 1
+        assert row1["review_required"] == 0
+
+        assert row2["batch_id"] == "B20261102"
+        assert row2["压力_last"] is None  # missing stays native blank/NaN for CatBoost
+        assert row2["anomaly_note_count"] >= 1
+
+        ws_schema = wb["CatBoost_字段契约"]
+        schema_cols = [ws_schema.cell(row=r, column=1).value for r in range(2, ws_schema.max_row + 1)]
+        assert schema_cols == headers
+    finally:
+        wb.close()
+

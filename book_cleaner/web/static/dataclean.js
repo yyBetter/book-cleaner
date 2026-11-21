@@ -11,6 +11,8 @@ import {
 } from "/static/api.js";
 
 const BUILTIN_FIELD_OPTIONS = [
+  { value: "batch_id", label: "批次号(自动识别)" },
+  { value: "record_dim", label: "记录维度(SOP/化验/过程)" },
   { value: "book_title", label: "书名/卷宗" },
   { value: "page_no", label: "页码" },
   { value: "chapter", label: "所属章节" },
@@ -19,7 +21,7 @@ const BUILTIN_FIELD_OPTIONS = [
   { value: "ocr_confidence", label: "识别置信度" },
   { value: "qa_status", label: "质检状态" },
   { value: "author", label: "作者" },
-  { value: "isbn", label: "ISBN/编号" },
+  { value: "isbn", label: "设备/卷宗编号" },
   { value: "source_ref", label: "来源文件名" },
 ];
 
@@ -42,7 +44,19 @@ export function createDataCleanController(state, callbacks) {
   const pagerInfo = document.getElementById("dcPagerInfo");
   const summaryNote = document.getElementById("dcSummaryNote");
   const newTemplateDialog = document.getElementById("newTemplateDialog");
+  const ruleCatboostChk = document.getElementById("ruleCatboostModeChk");
+  const exportCatboostHint = document.getElementById("exportCatboostHint");
   enableDialogLightDismissFallback(newTemplateDialog);
+
+  function syncCatboostHint(enabled) {
+    if (exportCatboostHint) {
+      exportCatboostHint.classList.toggle("hidden", !Boolean(enabled));
+    }
+  }
+
+  if (ruleCatboostChk) {
+    ruleCatboostChk.addEventListener("change", () => syncCatboostHint(ruleCatboostChk.checked));
+  }
 
   function renderTemplateSelectors(preferId = null) {
     tplSelect.replaceChildren();
@@ -75,6 +89,8 @@ export function createDataCleanController(state, callbacks) {
     document.getElementById("ruleNoiseChk").checked = r.strip_noise_symbols !== false;
     document.getElementById("ruleDedupChk").checked = r.deduplicate_entries !== false;
     document.getElementById("ruleMinConfInput").value = String(r.min_confidence_warn ?? 0.82);
+    if (ruleCatboostChk) ruleCatboostChk.checked = Boolean(r.catboost_mode);
+    syncCatboostHint(Boolean(r.catboost_mode));
 
     editingColumns = (tpl.columns || []).map((c) => ({ ...c }));
     renderColumnEditor();
@@ -88,6 +104,7 @@ export function createDataCleanController(state, callbacks) {
       strip_noise_symbols: document.getElementById("ruleNoiseChk").checked,
       deduplicate_entries: document.getElementById("ruleDedupChk").checked,
       min_confidence_warn: Number(document.getElementById("ruleMinConfInput").value || 0.82),
+      catboost_mode: Boolean(ruleCatboostChk && ruleCatboostChk.checked),
     };
   }
 

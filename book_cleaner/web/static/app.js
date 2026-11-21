@@ -7,6 +7,7 @@ import {
   enableDialogLightDismissFallback,
   initThemeToggle,
   showToast,
+  wireTwoStepAction,
   withButtonLoading,
 } from "/static/api.js";
 import { createCaptureController } from "/static/capture.js";
@@ -175,15 +176,28 @@ async function refreshStats() {
 
 bookSelect.addEventListener("change", async () => {
   state.currentBookId = Number(bookSelect.value);
-  state.recentCaptured = [];
-  captureCtrl.renderRecentStrip();
   const activeBook = state.books.find((b) => b.id === state.currentBookId);
   if (activeBook) captureCtrl.applyBookProfile(activeBook.profile);
   captureCtrl.refreshMobileQr();
-  await refreshStats();
+  await Promise.all([refreshStats(), captureCtrl.loadRecentFromBook()]);
   if (state.activeTab === "review") await reviewCtrl.refreshPageList();
   if (state.activeTab === "dataclean" && dataCleanCtrl) await dataCleanCtrl.refreshPreview();
   if (state.activeTab === "pipeline" || state.activeTab === "export") await reviewCtrl.refreshJobs();
+});
+
+wireTwoStepAction(document.getElementById("deleteBookBtn"), "确认删整本？", async () => {
+  if (!state.currentBookId) return;
+  try {
+    const res = await apiJson(`/api/books/${state.currentBookId}`, { method: "DELETE" });
+    await refreshBooks(res.fallback_book_id || null);
+    await Promise.all([refreshStats(), captureCtrl.loadRecentFromBook()]);
+    if (state.activeTab === "review") await reviewCtrl.refreshPageList();
+    if (state.activeTab === "dataclean" && dataCleanCtrl) await dataCleanCtrl.refreshPreview();
+    if (state.activeTab === "pipeline" || state.activeTab === "export") await reviewCtrl.refreshJobs();
+    showToast("已删除书目并清理关联文件", "ok");
+  } catch (err) {
+    showToast(err.message, "danger");
+  }
 });
 
 // New Book Modal
@@ -206,7 +220,7 @@ document.getElementById("newBookForm").addEventListener("submit", async (e) => {
       });
       await closeTopLayer(newBookDialog);
       await refreshBooks(created.id);
-      await refreshStats();
+      await Promise.all([refreshStats(), captureCtrl.loadRecentFromBook()]);
       showToast(`已创建书目《${created.title}》`, "ok");
     } catch (err) {
       showToast(err.message, "danger");
@@ -223,7 +237,7 @@ seedDemoBtn.addEventListener("click", async () => {
       const res = await apiJson(`/api/books/${state.currentBookId}/seed-demo`, { method: "POST" });
       showToast(`已生成 ${res.created_pages} 页演示样本（含双页拆单、弯页手指、泛黄阴影及模糊/重复测试）`, "ok");
       await refreshBooks(state.currentBookId);
-      await refreshStats();
+      await Promise.all([refreshStats(), captureCtrl.loadRecentFromBook()]);
       if (state.activeTab === "review") await reviewCtrl.refreshPageList();
     } catch (err) {
       showToast(err.message, "danger");
@@ -509,6 +523,7 @@ function connectSse() {
     sseRefreshTimer = setTimeout(async () => {
       await refreshStats();
       await refreshBooks(state.currentBookId);
+      await captureCtrl.loadRecentFromBook();
       if (payload.type === "job_progress") {
         await reviewCtrl.refreshJobs();
       }
@@ -526,7 +541,10 @@ function connectSse() {
 
 async function init() {
   captureCtrl = createCaptureController(state, {
-    onCaptured: () => refreshStats(),
+    onCaptured: () => {
+      refreshStats();
+      refreshBooks(state.currentBookId);
+    },
     onBookUpdated: (updated) => {
       const idx = state.books.findIndex((b) => b.id === updated.id);
       if (idx >= 0) state.books[idx] = updated;
@@ -539,7 +557,15 @@ async function init() {
   });
 
   reviewCtrl = createReviewAndPipelineController(state, {
-    onStatsNeeded: () => refreshStats(),
+    onStatsNeeded: () => {
+      refreshStats();
+      refreshBooks(state.currentBookId);
+    },
+    onPagesChanged: () => {
+      refreshStats();
+      refreshBooks(state.currentBookId);
+      captureCtrl.loadRecentFromBook();
+    },
   });
 
   dataCleanCtrl = createDataCleanController(state, {
@@ -561,7 +587,7 @@ async function init() {
   await dataCleanCtrl.loadTemplates();
   await refreshStats();
   apiJson("/api/settings").then((cfg) => updateActiveOcrPill(cfg.ocr)).catch(() => {});
-  captureCtrl.renderRecentStrip();
+  await captureCtrl.loadRecentFromBook();
   connectSse();
 }
 

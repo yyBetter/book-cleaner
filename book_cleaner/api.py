@@ -55,6 +55,10 @@ class PageUpdate(BaseModel):
     seq_no: int | None = None
 
 
+class BatchDeletePagesRequest(BaseModel):
+    page_ids: list[int] = Field(default_factory=list)
+
+
 class RecleanRequest(BaseModel):
     profile_patch: dict[str, Any] = Field(default_factory=dict)
     rerun_ocr: bool = False
@@ -381,7 +385,8 @@ def create_app(
             storage.delete_file_quietly(p.get("raw_path", ""))
             storage.delete_file_quietly(p.get("clean_path", ""))
             storage.delete_file_quietly(p.get("thumb_path", ""))
-        return {"deleted": True, "book_id": book_id}
+        fallback = db.ensure_default_book()
+        return {"deleted": True, "book_id": book_id, "fallback_book_id": fallback["id"]}
 
     # ------------------------------------------------------------------
     # Capture, Bulk Import & Demo Seed
@@ -489,6 +494,7 @@ def create_app(
         status: str = Query("ALL"),
         qa: str = Query("ALL"),
         search: str = Query(""),
+        order: str = Query("asc"),
         limit: int = Query(40, ge=1, le=200),
         offset: int = Query(0, ge=0),
     ) -> dict[str, Any]:
@@ -499,10 +505,46 @@ def create_app(
             status_filter=status,
             qa_filter=qa,
             search=search or None,
+            order=order,
             limit=limit,
             offset=offset,
         )
         return {"items": items, "total": total, "limit": limit, "offset": offset}
+
+    def _cleanup_deleted_pages(book_id: int, deleted_pages: list[dict[str, Any]]) -> list[int]:
+        ids: list[int] = []
+        for p in deleted_pages:
+            storage.delete_file_quietly(p.get("raw_path", ""))
+            storage.delete_file_quietly(p.get("clean_path", ""))
+            storage.delete_file_quietly(p.get("thumb_path", ""))
+            ids.append(int(p["id"]))
+        if ids:
+            coordinator.events.publish("page_deleted", {"book_id": book_id, "page_ids": ids})
+        return ids
+
+    @app.post("/api/books/{book_id}/pages/batch-delete")
+    def batch_delete_pages(book_id: int, body: BatchDeletePagesRequest) -> dict[str, Any]:
+        if db.get_book(book_id) is None:
+            raise HTTPException(status_code=404, detail="书目不存在")
+        deleted = db.delete_pages_batch(book_id, body.page_ids)
+        ids = _cleanup_deleted_pages(book_id, deleted)
+        return {"deleted_count": len(ids), "deleted_ids": ids}
+
+    @app.post("/api/books/{book_id}/pages/delete-flagged")
+    def delete_flagged_pages(book_id: int) -> dict[str, Any]:
+        if db.get_book(book_id) is None:
+            raise HTTPException(status_code=404, detail="书目不存在")
+        deleted = db.delete_flagged_pages(book_id)
+        ids = _cleanup_deleted_pages(book_id, deleted)
+        return {"deleted_count": len(ids), "deleted_ids": ids}
+
+    @app.delete("/api/books/{book_id}/pages")
+    def clear_book_pages(book_id: int) -> dict[str, Any]:
+        if db.get_book(book_id) is None:
+            raise HTTPException(status_code=404, detail="书目不存在")
+        deleted = db.clear_book_pages(book_id)
+        ids = _cleanup_deleted_pages(book_id, deleted)
+        return {"deleted_count": len(ids)}
 
     @app.get("/api/pages/{page_id}")
     def get_page(page_id: int) -> dict[str, Any]:
