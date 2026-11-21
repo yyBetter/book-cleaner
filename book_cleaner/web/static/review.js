@@ -53,6 +53,9 @@ export function createReviewAndPipelineController(state, callbacks) {
   }
 
   compareSlider.addEventListener("input", (e) => setSliderPercent(e.target.value));
+  document.querySelectorAll("[data-compare-preset]").forEach((btn) => {
+    btn.addEventListener("click", () => setSliderPercent(Number(btn.dataset.comparePreset)));
+  });
 
   // Direct pointer drag on comparison stage
   let isDraggingCompare = false;

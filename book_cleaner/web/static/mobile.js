@@ -3,8 +3,10 @@
  * or live video frame Blob, bounded in-memory upload queue, hands-on smart auto-capture, Torch & WakeLock.
  */
 
-import { apiJson, createStatusIcon, el, playBeep, translateFlag } from "/static/api.js";
+import { apiJson, createStatusIcon, el, initThemeToggle, playBeep, translateFlag } from "/static/api.js";
 import { HandsOnSmartTrigger } from "/static/smart_trigger.js";
+
+initThemeToggle(document.getElementById("mobileThemeBtn"), { compact: true });
 
 const mobileBookSelect = document.getElementById("mobileBookSelect");
 const mobileBookTitle = document.getElementById("mobileBookTitle");
@@ -186,17 +188,23 @@ function captureCanvasBlob() {
 }
 
 async function captureZeroStorageBlob() {
+  const flashEl = document.getElementById("mobileShutterFlash");
+  if (flashEl) {
+    flashEl.classList.remove("is-flashing");
+    void flashEl.offsetWidth;
+    flashEl.classList.add("is-flashing");
+  }
   if (imageCapture && !imageCaptureFailed) {
     try {
       const blob = await imageCapture.takePhoto(photoSettings);
       if (blob && blob.size > 0) {
-        mobileCaptureModeBadge.textContent = "硬件高清静帧直传";
+        mobileCaptureModeBadge.textContent = "硬件静帧";
         mobileCaptureModeBadge.className = "pill pill-ok";
         return blob;
       }
     } catch {
       imageCaptureFailed = true;
-      mobileCaptureModeBadge.textContent = "实时视频帧直传";
+      mobileCaptureModeBadge.textContent = "视频帧";
       mobileCaptureModeBadge.className = "pill";
     }
   }
@@ -248,7 +256,7 @@ document.getElementById("mobileNativeCameraInput").addEventListener("change", as
 
 async function initHardwareImageCapture(track) {
   if (typeof window.ImageCapture !== "function") {
-    mobileCaptureModeBadge.textContent = "实时视频帧直传";
+    mobileCaptureModeBadge.textContent = "视频帧";
     return;
   }
   try {
@@ -260,11 +268,11 @@ async function initHardwareImageCapture(track) {
         imageWidth: Math.max(caps.imageWidth.min || targetW, targetW),
       };
     }
-    mobileCaptureModeBadge.textContent = "硬件高清静帧直传";
+    mobileCaptureModeBadge.textContent = "硬件静帧";
     mobileCaptureModeBadge.className = "pill pill-ok";
   } catch {
     imageCapture = null;
-    mobileCaptureModeBadge.textContent = "实时视频帧直传";
+    mobileCaptureModeBadge.textContent = "视频帧";
   }
 }
 

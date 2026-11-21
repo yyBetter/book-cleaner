@@ -4,7 +4,7 @@
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
   <meta name="color-scheme" content="light dark">
-  <title>Android 采集伴侣 · Book Cleaner</title>
+  <title>超级扫描仪 · Android 采集伴侣</title>
   <link rel="stylesheet" href="/static/styles.css">
 </head>
 <body>
@@ -12,10 +12,13 @@
     <div class="card">
       <div class="toolbar-between" style="flex-wrap:nowrap;">
         <div style="min-width:0;">
-          <div class="muted-note">Android 采集端（压书手自动避让）</div>
+          <div class="muted-note">超级扫描仪 · 手机光学采集端</div>
           <h1 id="mobileBookTitle" style="margin:2px 0 0;font-size:16.5px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">加载书目中...</h1>
         </div>
-        <span id="mobilePageCountPill" class="pill pill-ok">0 页</span>
+        <div class="mobile-header-actions">
+          <button id="mobileThemeBtn" type="button" class="btn btn-compact" aria-label="切换暗房防反光模式">外观：跟随系统</button>
+          <span id="mobilePageCountPill" class="pill pill-ok">0 页</span>
+        </div>
       </div>
       <div class="toolbar-row" style="margin-top:10px;flex-wrap:nowrap;">
         <select id="mobileBookSelect" class="book-select" style="flex:1;min-width:0;"></select>
@@ -28,18 +31,24 @@
 
     <!-- Secure context live Android Chrome studio (USB 127.0.0.1 or Wi-Fi HTTPS) -->
     <div id="mobileLiveCard" class="card hidden">
-      <div class="toolbar-between" style="margin-bottom:8px;">
-        <span id="mobileZeroStoragePill" class="pill pill-ok">内存直传 · 手机 0 存储</span>
-        <div class="toolbar-row" style="gap:6px;">
-          <span id="mobileCaptureModeBadge" class="pill">检测硬件静帧中...</span>
+      <div class="mobile-status-strip">
+        <span id="mobileZeroStoragePill" class="pill pill-ok">0存储直传</span>
+        <div class="toolbar-row" style="gap:6px;flex-wrap:nowrap;">
+          <span id="mobileCaptureModeBadge" class="pill">检测硬件静帧...</span>
           <span id="mobileQueueBadge" class="pill">待传 0</span>
         </div>
       </div>
       <div class="viewport-box mobile-viewport">
         <video id="mobileVideo" autoplay playsinline muted></video>
-        <div class="thumb-zone-left">拇指压书区<br>自动擦除</div>
-        <div class="thumb-zone-right">拇指压书区<br>自动擦除</div>
-        <div id="mobileCenterGuide" class="center-clear-guide"></div>
+        <div class="thumb-zone-left">压书区<br>自动擦除</div>
+        <div class="thumb-zone-right">压书区<br>自动擦除</div>
+        <div id="mobileCenterGuide" class="center-clear-guide">
+          <span class="reticle-corner tl" aria-hidden="true"></span>
+          <span class="reticle-corner tr" aria-hidden="true"></span>
+          <span class="reticle-corner bl" aria-hidden="true"></span>
+          <span class="reticle-corner br" aria-hidden="true"></span>
+        </div>
+        <div id="mobileShutterFlash" class="shutter-flash" aria-hidden="true"></div>
         <div class="settle-meter"><div id="mobileSettleFill" class="settle-meter-fill"></div></div>
         <div class="hud-overlay">
           <span id="mobileSmartHud">压书自动抓拍：就绪</span>
@@ -62,7 +71,7 @@
         </button>
       </div>
 
-      <button id="mobileLiveShutterBtn" type="button" class="btn btn-primary mobile-shutter-big" style="margin-top:10px;">
+      <button id="mobileLiveShutterBtn" type="button" class="btn btn-shutter mobile-shutter-big" style="margin-top:10px;">
         <svg class="icon" viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="9"/><circle cx="12" cy="12" r="4"/></svg>
         <span>手动补拍一页（内存直传）</span>
       </button>
@@ -73,7 +82,7 @@
       <div id="mobileContextNotice" class="muted-note" style="margin-bottom:10px;">
         当前为普通局域网 HTTP 备用模式（系统相机可能会生成临时相册文件）。建议使用 Android USB 直连或 Windows HTTPS 模式解锁「手机 0 存储」内存直传。
       </div>
-      <label class="btn btn-primary mobile-shutter-big" style="cursor:pointer;">
+      <label class="btn btn-shutter mobile-shutter-big" style="cursor:pointer;">
         <span>备用：调用系统相机拍一页</span>
         <input id="mobileNativeCameraInput" type="file" accept="image/*" capture="environment" class="hidden">
       </label>

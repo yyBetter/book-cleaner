@@ -93,10 +93,21 @@ export function createCaptureController(state, callbacks) {
     profileEls.enhance_mode.value = profile.enhance_mode || "clean_color";
   }
 
+  function triggerFlashOverlay(id) {
+    const node = document.getElementById(id);
+    if (!node) return;
+    node.classList.remove("is-flashing");
+    void node.offsetWidth;
+    node.classList.add("is-flashing");
+  }
+
   function updateQaHud(qa, splitCount = 1) {
     const summaryEl = document.getElementById("captureQaSummary");
     const metricsEl = document.getElementById("captureQaMetrics");
     const lastHud = document.getElementById("lastQaHud");
+    const blurEl = document.getElementById("qaValBlur");
+    const brightEl = document.getElementById("qaValBright");
+    const dupEl = document.getElementById("qaValDup");
     if (!qa || qa.blur_score === undefined) return;
     const flags = qa.flags || [];
     const ok = flags.length === 0;
@@ -106,6 +117,12 @@ export function createCaptureController(state, callbacks) {
     summaryEl.textContent = label;
     summaryEl.style.color = ok ? "var(--ok)" : "var(--warn)";
     metricsEl.textContent = `清晰度: ${qa.blur_score} · 亮度: ${qa.brightness} · 重复帧: ${qa.is_duplicate ? "是" : "否"}`;
+    if (blurEl) blurEl.textContent = String(qa.blur_score);
+    if (brightEl) brightEl.textContent = String(qa.brightness);
+    if (dupEl) {
+      dupEl.textContent = qa.is_duplicate ? "重复" : "唯一";
+      dupEl.style.color = qa.is_duplicate ? "var(--warn)" : "var(--ok)";
+    }
     lastHud.textContent = `最近质检：${label}`;
 
     if (document.getElementById("beepToggleChk").checked) {
@@ -192,8 +209,10 @@ export function createCaptureController(state, callbacks) {
     }
     try {
       if (activeSource === "browser_cam" && browserStream) {
+        triggerFlashOverlay("browserShutterFlash");
         await captureBrowserFrame("browser_cam");
       } else {
+        triggerFlashOverlay("backendShutterFlash");
         const res = await apiJson(`/api/books/${state.currentBookId}/capture-camera`, {
           method: "POST",
           body: { profile_override: currentProfile() },

@@ -1,4 +1,4 @@
-# Book Cleaner · 纸质书籍智能采集与清洗工坊
+# 超级扫描仪 · Book Cleaner（纸质书籍光学采集与清洗工坊）
 
 > **一台电脑 + 外接高拍仪/摄像头（或 Android 手机），跑通十万页级「采集质检 ➔ 流水线图像净化与离线 OCR ➔ 对比抽检复核 ➔ 数据清洗与自定义表头映射 ➔ 多 Sheet Excel (.xlsx) / PDF / Markdown / EPUB 导出」五步闭环。**
 

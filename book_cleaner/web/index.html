@@ -4,24 +4,29 @@
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <meta name="color-scheme" content="light dark">
-  <title>纸质书籍清洗工坊 · Book Cleaner</title>
+  <title>超级扫描仪 · 智能纸质书籍采集与清洗工作台</title>
   <link rel="stylesheet" href="/static/styles.css">
 </head>
 <body>
   <header class="topbar">
-    <div class="brand-group">
-      <div class="brand-badge" aria-hidden="true">
-        <svg class="icon" viewBox="0 0 24 24"><path d="M4 19.5v-15A2.5 2.5 0 0 1 6.5 2H19a1 1 0 0 1 1 1v18a1 1 0 0 1-1 1H6.5a1 1 0 0 1 0-5H20"/><path d="M8 7h8"/><path d="M8 11h5"/></svg>
+    <div class="topbar-left">
+      <div class="brand-group">
+        <div class="brand-badge" aria-hidden="true">
+          <svg class="icon" viewBox="0 0 24 24"><path d="M3 7V5a2 2 0 0 1 2-2h2"/><path d="M17 3h2a2 2 0 0 1 2 2v2"/><path d="M21 17v2a2 2 0 0 1-2 2h-2"/><path d="M7 21H5a2 2 0 0 1-2-2v-2"/><path d="M7 12h10"/><circle cx="12" cy="12" r="2.5"/></svg>
+        </div>
+        <div>
+          <h1 class="brand-title">超级扫描仪</h1>
+          <div class="brand-sub">SUPER SCANNER · 十万页级光学采集与清洗工作台</div>
+        </div>
       </div>
-      <div>
-        <h1 class="brand-title">纸质书籍智能采集与清洗工作台</h1>
-        <div class="brand-sub">十万页级 SQLite WAL 队列 · 本地 OpenCV 展平漂白 · 多引擎离线 OCR</div>
+
+      <div class="book-switcher-group">
+        <select id="bookSelect" class="book-select" aria-label="选择当前书目"></select>
+        <button id="newBookBtn" type="button" class="btn btn-sm">+ 新建书目</button>
       </div>
     </div>
 
     <div class="topbar-controls">
-      <select id="bookSelect" class="book-select" aria-label="选择当前书目"></select>
-      <button id="newBookBtn" type="button" class="btn btn-sm">+ 新建书目</button>
       <button id="seedDemoBtn" type="button" class="btn btn-sm">导入演示样书 (7页)</button>
       <span id="pipelinePill" class="pill pill-ok"><span class="dot"></span><span id="pipelinePillText">流水线运行中</span></span>
       <span id="activeOcrPill" class="pill" title="当前生效的 OCR 识别引擎">RapidOCR</span>
@@ -103,9 +108,15 @@
                   支持 Windows DirectShow 高速高拍仪与 USB 摄像头。开启「压书手辅助」后，双手可一直压住左右蓝区翻拍，无需脚踏开关；也可直接把书页图片拖拽到此窗口上传。
                 </div>
               </div>
-              <div class="thumb-zone-left">压书白边区<br>自动擦除</div>
-              <div class="thumb-zone-right">压书白边区<br>自动擦除</div>
-              <div id="backendCenterGuide" class="center-clear-guide"></div>
+              <div class="thumb-zone-left">压书区<br>自动擦除</div>
+              <div class="thumb-zone-right">压书区<br>自动擦除</div>
+              <div id="backendCenterGuide" class="center-clear-guide">
+                <span class="reticle-corner tl" aria-hidden="true"></span>
+                <span class="reticle-corner tr" aria-hidden="true"></span>
+                <span class="reticle-corner bl" aria-hidden="true"></span>
+                <span class="reticle-corner br" aria-hidden="true"></span>
+              </div>
+              <div id="backendShutterFlash" class="shutter-flash" aria-hidden="true"></div>
               <div class="settle-meter"><div id="backendSettleFill" class="settle-meter-fill"></div></div>
               <div class="hud-overlay">
                 <span id="backendCamHudLeft">状态：待机</span>
@@ -137,9 +148,15 @@
                   支持 Windows 外接 USB 摄像头与 Mac 连续互通相机。点击「启动浏览器取景」授权后即可开启压书手自动抓拍与空格快门。
                 </div>
               </div>
-              <div class="thumb-zone-left">压书白边区<br>自动擦除</div>
-              <div class="thumb-zone-right">压书白边区<br>自动擦除</div>
-              <div id="browserCenterGuide" class="center-clear-guide"></div>
+              <div class="thumb-zone-left">压书区<br>自动擦除</div>
+              <div class="thumb-zone-right">压书区<br>自动擦除</div>
+              <div id="browserCenterGuide" class="center-clear-guide">
+                <span class="reticle-corner tl" aria-hidden="true"></span>
+                <span class="reticle-corner tr" aria-hidden="true"></span>
+                <span class="reticle-corner bl" aria-hidden="true"></span>
+                <span class="reticle-corner br" aria-hidden="true"></span>
+              </div>
+              <div id="browserShutterFlash" class="shutter-flash" aria-hidden="true"></div>
               <div class="settle-meter"><div id="browserSettleFill" class="settle-meter-fill"></div></div>
               <div class="hud-overlay">
                 <span id="browserMotionHud">翻页触发状态：待机</span>
@@ -205,7 +222,8 @@
           </div>
 
           <div class="shutter-bar">
-            <button id="captureShutterBtn" type="button" class="btn btn-primary shutter-main">
+            <button id="captureShutterBtn" type="button" class="btn btn-shutter shutter-main">
+              <svg class="icon" viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="9"/><circle cx="12" cy="12" r="4"/></svg>
               <span>拍照入库（脚踏板 / 空格）</span>
               <kbd class="kbd">Space</kbd>
             </button>
@@ -256,7 +274,12 @@
           <div id="captureQaCard" class="panel-inset">
             <div class="muted-note">最近一拍 L0 毫秒级质检结果</div>
             <div id="captureQaSummary" class="qa-summary-title">尚无采集记录</div>
-            <div id="captureQaMetrics" class="qa-summary-metrics">
+            <div class="qa-telemetry-grid">
+              <div class="qa-tele-cell"><div class="qa-tele-label">清晰度</div><div id="qaValBlur" class="qa-tele-val">-</div></div>
+              <div class="qa-tele-cell"><div class="qa-tele-label">亮度</div><div id="qaValBright" class="qa-tele-val">-</div></div>
+              <div class="qa-tele-cell"><div class="qa-tele-label">重复校验</div><div id="qaValDup" class="qa-tele-val">-</div></div>
+            </div>
+            <div id="captureQaMetrics" class="qa-summary-metrics hidden">
               清晰度：- · 亮度：- · 重复校验：-
             </div>
           </div>
@@ -386,7 +409,14 @@
               <span class="compare-label right">清洗成片 (Clean)</span>
             </div>
           </div>
-          <input id="compareSlider" class="compare-slider" type="range" min="0" max="100" value="50" aria-label="原图与清洗结果对比滑杆">
+          <div class="compare-slider-row">
+            <input id="compareSlider" class="compare-slider" type="range" min="0" max="100" value="50" aria-label="原图与清洗结果对比滑杆">
+            <div class="compare-presets" role="group" aria-label="快速切换对比视角">
+              <button type="button" class="btn btn-compact" data-compare-preset="100">看原图</button>
+              <button type="button" class="btn btn-compact" data-compare-preset="50">50/50</button>
+              <button type="button" class="btn btn-compact" data-compare-preset="0">看成片</button>
+            </div>
+          </div>
           <div id="reviewCleanDiag" class="muted-note" style="margin-top:4px;">可在图像上直接左右拖动或滑杆对比去阴影与展平效果</div>
         </div>
 
@@ -398,17 +428,17 @@
           </div>
           <div id="reviewFlagRow" class="toolbar-row" style="margin-bottom:8px;"></div>
           <textarea id="reviewTextEditor" class="input ocr-editor scroller" placeholder="等待 OCR 识别结果..."></textarea>
-          <div class="toolbar-row" style="margin-top:10px;">
+          <div class="review-actions">
             <button id="saveTextBtn" type="button" class="btn">
-              <span>保存文本</span>
+              <span>保存</span>
               <kbd class="kbd">Ctrl+S</kbd>
             </button>
-            <button id="llmCleanPageBtn" type="button" class="btn">LLM 精校此页</button>
+            <button id="llmCleanPageBtn" type="button" class="btn">LLM 精校</button>
             <button id="approvePageBtn" type="button" class="btn btn-ok">
               <span>通过</span>
               <kbd class="kbd">A</kbd>
             </button>
-            <button id="deletePageBtn" type="button" class="btn btn-danger">删除废片</button>
+            <button id="deletePageBtn" type="button" class="btn btn-danger">删除</button>
           </div>
         </div>
       </div>

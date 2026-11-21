@@ -176,8 +176,14 @@ const THEME_LABELS = {
   light: "外观：浅色纸张",
   dark: "外观：深色暗房",
 };
+const THEME_COMPACT_LABELS = {
+  system: "系统",
+  light: "浅色",
+  dark: "暗房",
+};
 
-export function initThemeToggle(btn) {
+export function initThemeToggle(btn, { compact = false } = {}) {
+  const labels = compact ? THEME_COMPACT_LABELS : THEME_LABELS;
   function applyTheme(mode) {
     const valid = THEME_CYCLE.includes(mode) ? mode : "system";
     if (valid === "system") {
@@ -196,7 +202,7 @@ export function initThemeToggle(btn) {
       }
     }
     if (btn) {
-      btn.textContent = THEME_LABELS[valid];
+      btn.textContent = labels[valid];
       btn.dataset.themeMode = valid;
     }
   }
