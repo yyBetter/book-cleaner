@@ -3,7 +3,7 @@
  * or live video frame Blob, bounded in-memory upload queue, hands-on smart auto-capture, Torch & WakeLock.
  */
 
-import { apiJson, el, playBeep, translateFlag } from "/static/api.js";
+import { apiJson, createStatusIcon, el, playBeep, translateFlag } from "/static/api.js";
 import { HandsOnSmartTrigger } from "/static/smart_trigger.js";
 
 const mobileBookSelect = document.getElementById("mobileBookSelect");
@@ -98,12 +98,13 @@ async function loadBooks() {
 function renderRecent() {
   mobileRecentStrip.replaceChildren();
   for (const p of recentShots) {
+    const hasWarn = Boolean(p.qa_flags && p.qa_flags.length);
     mobileRecentStrip.appendChild(
       el("div", { class: "thumb-chip" }, [
         el("img", { src: `/api/pages/${p.id}/image/thumb`, alt: `#${p.seq_no}` }),
         el("div", { class: "thumb-chip-meta" }, [
           el("span", { text: `#${p.seq_no}${p.spread_side !== "S" ? p.spread_side : ""}` }),
-          el("span", { text: p.qa_flags && p.qa_flags.length ? "⚠" : "✓" }),
+          createStatusIcon(hasWarn),
         ]),
       ])
     );
@@ -320,7 +321,9 @@ mobileTorchBtn.addEventListener("click", async () => {
   torchOn = !torchOn;
   try {
     await videoTrack.applyConstraints({ advanced: [{ torch: torchOn }] });
-    mobileTorchBtn.textContent = torchOn ? "关闭补光灯" : "开启补光灯";
+    const labelSpan = mobileTorchBtn.querySelector("span");
+    if (labelSpan) labelSpan.textContent = torchOn ? "关闭补光灯" : "开启补光灯";
+    else mobileTorchBtn.textContent = torchOn ? "关闭补光灯" : "开启补光灯";
   } catch {
     torchOn = false;
   }

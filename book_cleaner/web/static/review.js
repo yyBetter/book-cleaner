@@ -1,6 +1,14 @@
-/** Pipeline monitor, QA Review comparison workbench, and Export center. */
+/** Pipeline monitor, interactive QA Review comparison workbench, and Export center. */
 
-import { apiJson, el, showToast, translateFlag, translateStatus } from "/static/api.js";
+import {
+  apiJson,
+  el,
+  showToast,
+  translateFlag,
+  translateStatus,
+  wireTwoStepAction,
+  withButtonLoading,
+} from "/static/api.js";
 
 export function createReviewAndPipelineController(state, callbacks) {
   let currentFilterStatus = "ALL";
@@ -30,6 +38,7 @@ export function createReviewAndPipelineController(state, callbacks) {
   const compareRawLayer = document.getElementById("compareRawLayer");
   const compareDivider = document.getElementById("compareDivider");
   const compareSlider = document.getElementById("compareSlider");
+  const zoomToggleBtn = document.getElementById("zoomToggleBtn");
   const reviewCleanDiag = document.getElementById("reviewCleanDiag");
   const reviewConfBadge = document.getElementById("reviewConfBadge");
   const reviewFlagRow = document.getElementById("reviewFlagRow");
@@ -38,14 +47,48 @@ export function createReviewAndPipelineController(state, callbacks) {
 
   function setSliderPercent(pct) {
     const clamped = Math.max(0, Math.min(100, Number(pct)));
-    compareSlider.value = String(clamped);
+    compareSlider.value = String(Math.round(clamped));
     compareRawLayer.style.clipPath = `inset(0 ${100 - clamped}% 0 0)`;
     compareDivider.style.left = `${clamped}%`;
   }
 
   compareSlider.addEventListener("input", (e) => setSliderPercent(e.target.value));
-  document.getElementById("zoomToggleBtn").addEventListener("click", () => {
-    compareWrap.classList.toggle("is-zoomed");
+
+  // Direct pointer drag on comparison stage
+  let isDraggingCompare = false;
+  function updateCompareFromPointer(clientX) {
+    const rect = compareWrap.getBoundingClientRect();
+    if (!rect.width) return;
+    setSliderPercent(((clientX - rect.left) / rect.width) * 100);
+  }
+  compareWrap.addEventListener("pointerdown", (e) => {
+    isDraggingCompare = true;
+    try {
+      compareWrap.setPointerCapture?.(e.pointerId);
+    } catch {
+      // Ignore synthetic events
+    }
+    updateCompareFromPointer(e.clientX);
+  });
+  compareWrap.addEventListener("pointermove", (e) => {
+    if (!isDraggingCompare) return;
+    updateCompareFromPointer(e.clientX);
+  });
+  ["pointerup", "pointercancel"].forEach((evt) => {
+    compareWrap.addEventListener(evt, (e) => {
+      if (!isDraggingCompare) return;
+      isDraggingCompare = false;
+      try {
+        compareWrap.releasePointerCapture?.(e.pointerId);
+      } catch {
+        // Ignore
+      }
+    });
+  });
+
+  zoomToggleBtn.addEventListener("click", () => {
+    const zoomed = compareWrap.classList.toggle("is-zoomed");
+    zoomToggleBtn.textContent = zoomed ? "恢复适应" : "放大细节";
   });
 
   function renderStats(stats) {
@@ -83,6 +126,7 @@ export function createReviewAndPipelineController(state, callbacks) {
     jobsTableBody.replaceChildren();
     exportJobsBody.replaceChildren();
 
+    let exportCount = 0;
     for (const j of items) {
       const isExport = String(j.job_type || "").startsWith("EXPORT_");
       const progress = j.total_items > 0 ? `${j.done_items}/${j.total_items}` : `${j.done_items}`;
@@ -93,7 +137,7 @@ export function createReviewAndPipelineController(state, callbacks) {
               href: `/api/jobs/${j.id}/download`,
               text: "下载文件",
             })
-          : el("span", { style: "color:var(--muted);font-size:12px;", text: j.error_msg || "-" });
+          : el("span", { class: "muted-note", text: j.error_msg || "-" });
 
       jobsTableBody.appendChild(
         el("tr", {}, [
@@ -101,12 +145,13 @@ export function createReviewAndPipelineController(state, callbacks) {
           el("td", { text: j.job_type }),
           el("td", { text: j.status }),
           el("td", { text: progress }),
-          el("td", { text: j.result_path || j.error_msg || "-" }),
+          el("td", { class: "cell-trunc", text: j.result_path || j.error_msg || "-", title: j.result_path || j.error_msg || "" }),
           el("td", {}, [downloadBtn.cloneNode(true)]),
         ])
       );
 
       if (isExport) {
+        exportCount += 1;
         exportJobsBody.appendChild(
           el("tr", {}, [
             el("td", { text: `#${j.id}` }),
@@ -117,6 +162,29 @@ export function createReviewAndPipelineController(state, callbacks) {
           ])
         );
       }
+    }
+
+    if (!items.length) {
+      jobsTableBody.appendChild(
+        el("tr", {}, [
+          el("td", {
+            colspan: "6",
+            class: "empty-state",
+            text: "当前书目尚无批量导入或导出后台任务记录",
+          }),
+        ])
+      );
+    }
+    if (exportCount === 0) {
+      exportJobsBody.appendChild(
+        el("tr", {}, [
+          el("td", {
+            colspan: "5",
+            class: "empty-state",
+            text: "暂无导出文件，点击上方任意格式按钮即可在后台生成下载",
+          }),
+        ])
+      );
     }
   }
 
@@ -157,8 +225,9 @@ export function createReviewAndPipelineController(state, callbacks) {
     if (!currentList.length) {
       reviewGallery.appendChild(
         el("div", {
-          style: "grid-column:1/-1;padding:24px;text-align:center;color:var(--muted);font-size:13px;",
-          text: "当前筛选条件下暂无页面",
+          style: "grid-column:1/-1;",
+          class: "empty-state",
+          text: "当前筛选条件下暂无页面（可切换筛选标签，或在采集工位导入演示样书）",
         })
       );
       return;
@@ -201,12 +270,14 @@ export function createReviewAndPipelineController(state, callbacks) {
   }
 
   function clearSelectedPage() {
+    const blank = "data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7";
     selectedPage = null;
     reviewImageTitle.textContent = "未选择页面";
-    compareCleanImg.removeAttribute("src");
-    compareRawImg.removeAttribute("src");
+    compareCleanImg.src = blank;
+    compareRawImg.src = blank;
     reviewTextEditor.value = "";
     reviewConfBadge.textContent = "置信度 -";
+    reviewConfBadge.className = "pill";
     reviewFlagRow.replaceChildren();
     reviewCleanDiag.textContent = "请从左侧选择一个页面开始对比复核";
   }
@@ -215,7 +286,9 @@ export function createReviewAndPipelineController(state, callbacks) {
     const p = await apiJson(`/api/pages/${pageId}`);
     selectedPage = p;
     reviewGallery.querySelectorAll(".review-card").forEach((card) => {
-      card.classList.toggle("is-selected", Number(card.dataset.pageId) === p.id);
+      const active = Number(card.dataset.pageId) === p.id;
+      card.classList.toggle("is-selected", active);
+      if (active) card.scrollIntoView({ block: "nearest", inline: "nearest" });
     });
 
     const ts = encodeURIComponent(p.updated_at || Date.now());
@@ -285,18 +358,21 @@ export function createReviewAndPipelineController(state, callbacks) {
   });
 
   // Page Actions
-  document.getElementById("saveTextBtn").addEventListener("click", async () => {
+  const saveTextBtn = document.getElementById("saveTextBtn");
+  saveTextBtn.addEventListener("click", async () => {
     if (!selectedPage) return;
-    try {
-      const updated = await apiJson(`/api/pages/${selectedPage.id}`, {
-        method: "PATCH",
-        body: { clean_text: reviewTextEditor.value },
-      });
-      selectedPage = updated;
-      showToast("校对文本已保存", "ok");
-    } catch (err) {
-      showToast(err.message, "danger");
-    }
+    await withButtonLoading(saveTextBtn, "保存中...", async () => {
+      try {
+        const updated = await apiJson(`/api/pages/${selectedPage.id}`, {
+          method: "PATCH",
+          body: { clean_text: reviewTextEditor.value },
+        });
+        selectedPage = updated;
+        showToast("校对文本已保存", "ok");
+      } catch (err) {
+        showToast(err.message, "danger");
+      }
+    });
   });
 
   async function approveCurrent() {
@@ -318,7 +394,8 @@ export function createReviewAndPipelineController(state, callbacks) {
 
   document.getElementById("approvePageBtn").addEventListener("click", approveCurrent);
 
-  document.getElementById("deletePageBtn").addEventListener("click", async () => {
+  const deletePageBtn = document.getElementById("deletePageBtn");
+  wireTwoStepAction(deletePageBtn, "确认删除此页？", async () => {
     if (!selectedPage) return;
     const doomed = selectedPage;
     try {
@@ -332,33 +409,39 @@ export function createReviewAndPipelineController(state, callbacks) {
     }
   });
 
-  document.getElementById("recleanPageBtn").addEventListener("click", async () => {
+  const recleanPageBtn = document.getElementById("recleanPageBtn");
+  recleanPageBtn.addEventListener("click", async () => {
     if (!selectedPage) return;
-    try {
-      const updated = await apiJson(`/api/pages/${selectedPage.id}/reclean`, {
-        method: "POST",
-        body: {
-          profile_patch: { enhance_mode: recleanModeSelect.value },
-          rerun_ocr: false,
-        },
-      });
-      await selectPage(updated.id);
-      renderGallery();
-      showToast("已完成实时重洗并刷新对比图", "ok");
-    } catch (err) {
-      showToast(err.message, "danger");
-    }
+    await withButtonLoading(recleanPageBtn, "重洗中...", async () => {
+      try {
+        const updated = await apiJson(`/api/pages/${selectedPage.id}/reclean`, {
+          method: "POST",
+          body: {
+            profile_patch: { enhance_mode: recleanModeSelect.value },
+            rerun_ocr: false,
+          },
+        });
+        await selectPage(updated.id);
+        renderGallery();
+        showToast("已完成实时重洗并刷新对比图", "ok");
+      } catch (err) {
+        showToast(err.message, "danger");
+      }
+    });
   });
 
-  document.getElementById("llmCleanPageBtn").addEventListener("click", async () => {
+  const llmCleanPageBtn = document.getElementById("llmCleanPageBtn");
+  llmCleanPageBtn.addEventListener("click", async () => {
     if (!selectedPage) return;
-    try {
-      const updated = await apiJson(`/api/pages/${selectedPage.id}/llm-clean`, { method: "POST" });
-      await selectPage(updated.id);
-      showToast("已完成 LLM 单页精校", "ok");
-    } catch (err) {
-      showToast(err.message, "warn");
-    }
+    await withButtonLoading(llmCleanPageBtn, "LLM精校中...", async () => {
+      try {
+        const updated = await apiJson(`/api/pages/${selectedPage.id}/llm-clean`, { method: "POST" });
+        await selectPage(updated.id);
+        showToast("已完成 LLM 单页精校", "ok");
+      } catch (err) {
+        showToast(err.message, "warn");
+      }
+    });
   });
 
   // Pipeline controls
@@ -370,33 +453,38 @@ export function createReviewAndPipelineController(state, callbacks) {
     await apiJson("/api/pipeline/resume", { method: "POST" });
     callbacks.onStatsNeeded();
   });
-  document.getElementById("retryFailedBtn").addEventListener("click", async () => {
-    const qs = state.currentBookId ? `?book_id=${state.currentBookId}` : "";
-    const res = await apiJson(`/api/pipeline/retry-failed${qs}`, { method: "POST" });
-    showToast(`已重新入队 ${res.retried} 个失败页面`, "ok");
-    callbacks.onStatsNeeded();
+  const retryFailedBtn = document.getElementById("retryFailedBtn");
+  retryFailedBtn.addEventListener("click", async () => {
+    await withButtonLoading(retryFailedBtn, "重试中...", async () => {
+      const qs = state.currentBookId ? `?book_id=${state.currentBookId}` : "";
+      const res = await apiJson(`/api/pipeline/retry-failed${qs}`, { method: "POST" });
+      showToast(`已重新入队 ${res.retried} 个失败页面`, "ok");
+      callbacks.onStatsNeeded();
+    });
   });
 
   // Export triggers
   document.querySelectorAll(".export-trigger").forEach((btn) => {
     btn.addEventListener("click", async () => {
       if (!state.currentBookId) return;
-      try {
-        const fmt = btn.dataset.format;
-        const payload = { format: fmt };
-        if (fmt === "xlsx") {
-          const tplSel = document.getElementById("exportExcelTemplateSelect");
-          if (tplSel && tplSel.value) payload.template_id = Number(tplSel.value);
+      await withButtonLoading(btn, "正在生成...", async () => {
+        try {
+          const fmt = btn.dataset.format;
+          const payload = { format: fmt };
+          if (fmt === "xlsx") {
+            const tplSel = document.getElementById("exportExcelTemplateSelect");
+            if (tplSel && tplSel.value) payload.template_id = Number(tplSel.value);
+          }
+          const res = await apiJson(`/api/books/${state.currentBookId}/export`, {
+            method: "POST",
+            body: payload,
+          });
+          showToast(`导出任务 #${res.job.id} 已加入队列`, "ok");
+          setTimeout(refreshJobs, 450);
+        } catch (err) {
+          showToast(err.message, "danger");
         }
-        const res = await apiJson(`/api/books/${state.currentBookId}/export`, {
-          method: "POST",
-          body: payload,
-        });
-        showToast(`导出任务 #${res.job.id} 已加入队列`, "ok");
-        setTimeout(refreshJobs, 450);
-      } catch (err) {
-        showToast(err.message, "danger");
-      }
+      });
     });
   });
 

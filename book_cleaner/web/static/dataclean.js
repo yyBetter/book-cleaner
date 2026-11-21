@@ -1,6 +1,14 @@
 /** Stage 2 Data Cleaning & Custom Excel Schema Controller. */
 
-import { apiJson, el, enableDialogLightDismissFallback, showToast } from "/static/api.js";
+import {
+  apiJson,
+  closeTopLayer,
+  el,
+  enableDialogLightDismissFallback,
+  showToast,
+  wireTwoStepAction,
+  withButtonLoading,
+} from "/static/api.js";
 
 const BUILTIN_FIELD_OPTIONS = [
   { value: "book_title", label: "书名/卷宗" },
@@ -203,6 +211,7 @@ export function createDataCleanController(state, callbacks) {
     document.getElementById("dcKpiTables").textContent = String(s.distinct_tables || 0);
     document.getElementById("dcKpiTableRows").textContent = String(s.table_rows || 0);
     document.getElementById("dcKpiWarnings").textContent = String(s.warning_rows || 0);
+    if (callbacks.onCleaned) callbacks.onCleaned(s);
   }
 
   async function refreshPreview() {
@@ -228,7 +237,7 @@ export function createDataCleanController(state, callbacks) {
         el("tr", {}, [
           el("td", {
             colspan: "6",
-            style: "text-align:center;color:var(--muted);padding:20px;",
+            class: "empty-state",
             text: "暂无结构化清洗结果，请点击左侧「运行结构化清洗与拆表」",
           }),
         ])
@@ -342,16 +351,20 @@ export function createDataCleanController(state, callbacks) {
     renderColumnEditor();
   });
 
-  document.getElementById("saveTemplateBtn").addEventListener("click", async () => {
-    try {
-      await saveCurrentTemplate();
-      showToast("Excel 清洗模板已保存", "ok");
-    } catch (err) {
-      showToast(err.message, "danger");
-    }
+  const saveTemplateBtn = document.getElementById("saveTemplateBtn");
+  saveTemplateBtn.addEventListener("click", async () => {
+    await withButtonLoading(saveTemplateBtn, "保存中...", async () => {
+      try {
+        await saveCurrentTemplate();
+        showToast("Excel 清洗模板已保存", "ok");
+      } catch (err) {
+        showToast(err.message, "danger");
+      }
+    });
   });
 
-  document.getElementById("deleteTemplateBtn").addEventListener("click", async () => {
+  const deleteTemplateBtn = document.getElementById("deleteTemplateBtn");
+  wireTwoStepAction(deleteTemplateBtn, "确认删除？", async () => {
     if (!activeTemplate) return;
     try {
       await apiJson(`/api/excel-templates/${activeTemplate.id}`, { method: "DELETE" });
@@ -369,24 +382,27 @@ export function createDataCleanController(state, callbacks) {
 
   document.getElementById("newTemplateForm").addEventListener("submit", async (e) => {
     e.preventDefault();
-    try {
-      const created = await apiJson("/api/excel-templates", {
-        method: "POST",
-        body: {
-          name: document.getElementById("newTemplateNameInput").value,
-          description: document.getElementById("newTemplateDescInput").value,
-          entry_sheet_name: entrySheetInput.value.trim() || "正文结构化条目",
-          table_sheet_name: tableSheetInput.value.trim() || "提取表格明细",
-          rules: readFormRules(),
-          columns: editingColumns,
-        },
-      });
-      newTemplateDialog.close();
-      await loadTemplates(created.id);
-      showToast(`已创建模板「${created.name}」`, "ok");
-    } catch (err) {
-      showToast(err.message, "danger");
-    }
+    const submitBtn = e.target.querySelector('button[type="submit"]');
+    await withButtonLoading(submitBtn, "创建中...", async () => {
+      try {
+        const created = await apiJson("/api/excel-templates", {
+          method: "POST",
+          body: {
+            name: document.getElementById("newTemplateNameInput").value,
+            description: document.getElementById("newTemplateDescInput").value,
+            entry_sheet_name: entrySheetInput.value.trim() || "正文结构化条目",
+            table_sheet_name: tableSheetInput.value.trim() || "提取表格明细",
+            rules: readFormRules(),
+            columns: editingColumns,
+          },
+        });
+        await closeTopLayer(newTemplateDialog);
+        await loadTemplates(created.id);
+        showToast(`已创建模板「${created.name}」`, "ok");
+      } catch (err) {
+        showToast(err.message, "danger");
+      }
+    });
   });
 
   document.getElementById("importXlsxHeaderInput").addEventListener("change", async (e) => {
@@ -405,37 +421,43 @@ export function createDataCleanController(state, callbacks) {
     }
   });
 
-  document.getElementById("runDataCleanBtn").addEventListener("click", async () => {
+  const runDataCleanBtn = document.getElementById("runDataCleanBtn");
+  runDataCleanBtn.addEventListener("click", async () => {
     if (!state.currentBookId) return;
-    try {
-      const saved = await saveCurrentTemplate();
-      const res = await apiJson(`/api/books/${state.currentBookId}/data-clean/run`, {
-        method: "POST",
-        body: { template_id: saved ? saved.id : null },
-      });
-      const s = res.summary;
-      summaryNote.textContent = `已完成 ${s.pages_processed} 页结构化清洗 · 通过率 ${s.pass_rate_pct}% · 去重 ${s.dedup_removed} 条`;
-      previewOffset = 0;
-      await refreshPreview();
-      showToast(`清洗完成：${s.entries} 条正文，${s.distinct_tables} 张表（${s.table_rows} 行）`, "ok");
-    } catch (err) {
-      showToast(err.message, "danger");
-    }
+    await withButtonLoading(runDataCleanBtn, "清洗拆表中...", async () => {
+      try {
+        const saved = await saveCurrentTemplate();
+        const res = await apiJson(`/api/books/${state.currentBookId}/data-clean/run`, {
+          method: "POST",
+          body: { template_id: saved ? saved.id : null },
+        });
+        const s = res.summary;
+        summaryNote.textContent = `已完成 ${s.pages_processed} 页结构化清洗 · 通过率 ${s.pass_rate_pct}% · 去重 ${s.dedup_removed} 条`;
+        previewOffset = 0;
+        await refreshPreview();
+        showToast(`清洗完成：${s.entries} 条正文，${s.distinct_tables} 张表（${s.table_rows} 行）`, "ok");
+      } catch (err) {
+        showToast(err.message, "danger");
+      }
+    });
   });
 
-  document.getElementById("dcExportXlsxBtn").addEventListener("click", async () => {
+  const dcExportXlsxBtn = document.getElementById("dcExportXlsxBtn");
+  dcExportXlsxBtn.addEventListener("click", async () => {
     if (!state.currentBookId) return;
-    try {
-      const saved = await saveCurrentTemplate();
-      const res = await apiJson(`/api/books/${state.currentBookId}/export`, {
-        method: "POST",
-        body: { format: "xlsx", template_id: saved ? saved.id : null },
-      });
-      showToast(`Excel 导出任务 #${res.job.id} 已启动，请稍候前往导出历史下载`, "ok");
-      callbacks.onExportTriggered();
-    } catch (err) {
-      showToast(err.message, "danger");
-    }
+    await withButtonLoading(dcExportXlsxBtn, "提交导出...", async () => {
+      try {
+        const saved = await saveCurrentTemplate();
+        const res = await apiJson(`/api/books/${state.currentBookId}/export`, {
+          method: "POST",
+          body: { format: "xlsx", template_id: saved ? saved.id : null },
+        });
+        showToast(`Excel 导出任务 #${res.job.id} 已启动，请稍候前往导出历史下载`, "ok");
+        callbacks.onExportTriggered();
+      } catch (err) {
+        showToast(err.message, "danger");
+      }
+    });
   });
 
   document.querySelectorAll("[data-dc-kind]").forEach((btn) => {

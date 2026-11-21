@@ -1,6 +1,14 @@
-/** Main workbench bootstrapper: book management, modals, SSE live updates, keyboard shortcuts. */
+/** Main workbench bootstrapper: book management, modals, theme toggle, SSE live updates, keyboard shortcuts. */
 
-import { apiJson, el, enableDialogLightDismissFallback, showToast } from "/static/api.js";
+import {
+  apiJson,
+  closeTopLayer,
+  el,
+  enableDialogLightDismissFallback,
+  initThemeToggle,
+  showToast,
+  withButtonLoading,
+} from "/static/api.js";
 import { createCaptureController } from "/static/capture.js";
 import { createDataCleanController } from "/static/dataclean.js";
 import { createReviewAndPipelineController } from "/static/review.js";
@@ -15,16 +23,19 @@ const state = {
 const bookSelect = document.getElementById("bookSelect");
 const pipelinePill = document.getElementById("pipelinePill");
 const pipelinePillText = document.getElementById("pipelinePillText");
+const activeOcrPill = document.getElementById("activeOcrPill");
 const newBookDialog = document.getElementById("newBookDialog");
 const settingsDialog = document.getElementById("settingsDialog");
+const tabBtns = Array.from(document.querySelectorAll(".tab-btn"));
 
+initThemeToggle(document.getElementById("themeToggleBtn"));
 enableDialogLightDismissFallback(newBookDialog);
 enableDialogLightDismissFallback(settingsDialog);
 
 document.querySelectorAll("[data-close-dialog]").forEach((btn) => {
   btn.addEventListener("click", () => {
     const dlg = document.getElementById(btn.dataset.closeDialog);
-    if (dlg) dlg.close();
+    if (dlg) closeTopLayer(dlg);
   });
 });
 
@@ -32,29 +43,81 @@ let captureCtrl = null;
 let reviewCtrl = null;
 let dataCleanCtrl = null;
 
-function switchTab(tabKey) {
+const OCR_ENGINE_LABELS = {
+  rapidocr: "RapidOCR 离线",
+  deepseek_ocr2_local: "DeepSeek-OCR 2 本地",
+  deepseek_ocr2_api: "DeepSeek-OCR 2 API",
+  hybrid_smart: "智能混合 OCR",
+};
+
+function updateActiveOcrPill(ocrCfg) {
+  if (!activeOcrPill) return;
+  const eng = (ocrCfg && ocrCfg.engine) || "rapidocr";
+  activeOcrPill.textContent = OCR_ENGINE_LABELS[eng] || eng;
+  activeOcrPill.className = `pill ${eng === "rapidocr" ? "" : "pill-ok"}`;
+}
+
+function updateTabBadges(bookStats) {
+  const b = bookStats || {};
+  const capBadge = document.getElementById("tabBadgeCapture");
+  const pipeBadge = document.getElementById("tabBadgePipeline");
+  const revBadge = document.getElementById("tabBadgeReview");
+
+  if (capBadge) {
+    capBadge.textContent = String(b.total || 0);
+  }
+  const activeQueue = (b.pending_clean || 0) + (b.pending_ocr || 0) + (b.pending_llm || 0);
+  if (pipeBadge) {
+    pipeBadge.textContent = String(activeQueue);
+    pipeBadge.classList.toggle("hidden", activeQueue === 0);
+  }
+  const revCount = (b.needs_review || 0) + (b.failed || 0);
+  if (revBadge) {
+    revBadge.textContent = String(revCount);
+    revBadge.classList.toggle("hidden", revCount === 0);
+    revBadge.classList.toggle("is-warn", revCount > 0);
+  }
+}
+
+function switchTab(tabKey, { focusTab = false } = {}) {
   state.activeTab = tabKey;
-  document.querySelectorAll(".tab-btn").forEach((b) => {
+  tabBtns.forEach((b) => {
     const active = b.dataset.tab === tabKey;
     b.classList.toggle("is-active", active);
     b.setAttribute("aria-selected", String(active));
+    b.tabIndex = active ? 0 : -1;
+    if (active) {
+      b.scrollIntoView({ block: "nearest", inline: "nearest" });
+      if (focusTab) b.focus();
+    }
   });
   document.querySelectorAll(".tab-panel").forEach((p) => {
     p.classList.toggle("is-active", p.id === `tab-${tabKey}`);
   });
-  if (tabKey === "review") reviewCtrl.refreshPageList();
+  if (tabKey === "review" && reviewCtrl) reviewCtrl.refreshPageList();
   if (tabKey === "dataclean" && dataCleanCtrl) {
     dataCleanCtrl.loadTemplates().then(() => dataCleanCtrl.refreshPreview());
   }
-  if (tabKey === "pipeline" || tabKey === "export") {
+  if ((tabKey === "pipeline" || tabKey === "export") && reviewCtrl) {
     refreshStats();
     reviewCtrl.refreshJobs();
     if (tabKey === "export" && dataCleanCtrl) dataCleanCtrl.loadTemplates();
   }
 }
 
-document.querySelectorAll(".tab-btn").forEach((b) => {
+tabBtns.forEach((b, idx) => {
   b.addEventListener("click", () => switchTab(b.dataset.tab));
+  b.addEventListener("keydown", (e) => {
+    let nextIdx = null;
+    if (e.key === "ArrowRight") nextIdx = (idx + 1) % tabBtns.length;
+    else if (e.key === "ArrowLeft") nextIdx = (idx - 1 + tabBtns.length) % tabBtns.length;
+    else if (e.key === "Home") nextIdx = 0;
+    else if (e.key === "End") nextIdx = tabBtns.length - 1;
+    if (nextIdx !== null) {
+      e.preventDefault();
+      switchTab(tabBtns[nextIdx].dataset.tab, { focusTab: true });
+    }
+  });
 });
 
 async function refreshBooks(preferBookId = null) {
@@ -89,12 +152,13 @@ async function refreshStats() {
   captureCtrl.updateBackendCamStatus(stats.camera);
 
   const b = stats.book || { total: 0, pending_clean: 0, pending_ocr: 0 };
+  updateTabBadges(b);
   if (stats.paused) {
     pipelinePill.className = "pill pill-warn";
     pipelinePillText.textContent = "流水线已暂停";
   } else {
     pipelinePill.className = "pill pill-ok";
-    const activeQ = (b.pending_clean || 0) + (b.pending_ocr || 0);
+    const activeQ = (b.pending_clean || 0) + (b.pending_ocr || 0) + (b.pending_llm || 0);
     pipelinePillText.textContent = activeQ > 0 ? `处理中 (${activeQ} 页排队)` : `就绪 (${b.total} 页)`;
   }
 }
@@ -119,36 +183,42 @@ document.getElementById("newBookBtn").addEventListener("click", () => {
 });
 document.getElementById("newBookForm").addEventListener("submit", async (e) => {
   e.preventDefault();
-  try {
-    const created = await apiJson("/api/books", {
-      method: "POST",
-      body: {
-        title: document.getElementById("newBookTitleInput").value,
-        author: document.getElementById("newBookAuthorInput").value,
-        isbn: document.getElementById("newBookIsbnInput").value,
-      },
-    });
-    newBookDialog.close();
-    await refreshBooks(created.id);
-    await refreshStats();
-    showToast(`已创建书目《${created.title}》`, "ok");
-  } catch (err) {
-    showToast(err.message, "danger");
-  }
+  const submitBtn = e.target.querySelector('button[type="submit"]');
+  await withButtonLoading(submitBtn, "创建中...", async () => {
+    try {
+      const created = await apiJson("/api/books", {
+        method: "POST",
+        body: {
+          title: document.getElementById("newBookTitleInput").value,
+          author: document.getElementById("newBookAuthorInput").value,
+          isbn: document.getElementById("newBookIsbnInput").value,
+        },
+      });
+      await closeTopLayer(newBookDialog);
+      await refreshBooks(created.id);
+      await refreshStats();
+      showToast(`已创建书目《${created.title}》`, "ok");
+    } catch (err) {
+      showToast(err.message, "danger");
+    }
+  });
 });
 
 // Demo seed button
-document.getElementById("seedDemoBtn").addEventListener("click", async () => {
+const seedDemoBtn = document.getElementById("seedDemoBtn");
+seedDemoBtn.addEventListener("click", async () => {
   if (!state.currentBookId) return;
-  try {
-    const res = await apiJson(`/api/books/${state.currentBookId}/seed-demo`, { method: "POST" });
-    showToast(`已生成 ${res.created_pages} 页演示样本（含双页拆单、弯页手指、泛黄阴影及模糊/重复测试）`, "ok");
-    await refreshBooks(state.currentBookId);
-    await refreshStats();
-    if (state.activeTab === "review") await reviewCtrl.refreshPageList();
-  } catch (err) {
-    showToast(err.message, "danger");
-  }
+  await withButtonLoading(seedDemoBtn, "生成演示页中...", async () => {
+    try {
+      const res = await apiJson(`/api/books/${state.currentBookId}/seed-demo`, { method: "POST" });
+      showToast(`已生成 ${res.created_pages} 页演示样本（含双页拆单、弯页手指、泛黄阴影及模糊/重复测试）`, "ok");
+      await refreshBooks(state.currentBookId);
+      await refreshStats();
+      if (state.activeTab === "review") await reviewCtrl.refreshPageList();
+    } catch (err) {
+      showToast(err.message, "danger");
+    }
+  });
 });
 
 // Settings, OCR Engine & DeepSeek-OCR 2 On-Demand Add-on Modal
@@ -243,19 +313,23 @@ document.getElementById("openSettingsBtn").addEventListener("click", async () =>
     document.getElementById("llmLowConfInput").value = String(llm.low_conf_threshold ?? 0.85);
     document.getElementById("llmTestResult").textContent = "";
     renderAddonStatus(addonSt);
+    updateActiveOcrPill(ocr);
     settingsDialog.showModal();
   } catch (err) {
     showToast(err.message, "danger");
   }
 });
 
-document.getElementById("recheckHwBtn").addEventListener("click", async () => {
-  try {
-    await refreshAddonStatus(true);
-    showToast("已完成本机硬件检测", "ok");
-  } catch (err) {
-    showToast(err.message, "danger");
-  }
+const recheckHwBtn = document.getElementById("recheckHwBtn");
+recheckHwBtn.addEventListener("click", async () => {
+  await withButtonLoading(recheckHwBtn, "检测中...", async () => {
+    try {
+      await refreshAddonStatus(true);
+      showToast("已完成本机硬件检测", "ok");
+    } catch (err) {
+      showToast(err.message, "danger");
+    }
+  });
 });
 
 document.getElementById("addonForceChk").addEventListener("change", () => {
@@ -310,49 +384,66 @@ function readLlmForm() {
   };
 }
 
-document.getElementById("testOcrApiBtn").addEventListener("click", async () => {
+const testOcrApiBtn = document.getElementById("testOcrApiBtn");
+testOcrApiBtn.addEventListener("click", async () => {
   const out = document.getElementById("ocrApiTestResult");
   out.textContent = "正在测试 DeepSeek 视觉 API 连通性...";
-  try {
-    const o = readOcrForm();
-    const res = await apiJson("/api/ocr/test-api", {
-      method: "POST",
-      body: { api_base_url: o.api_base_url, api_key: o.api_key, api_model: o.api_model },
-    });
-    out.textContent = res.message;
-    out.style.color = res.ok ? "var(--ok)" : "var(--danger)";
-  } catch (err) {
-    out.textContent = err.message;
-    out.style.color = "var(--danger)";
-  }
+  await withButtonLoading(testOcrApiBtn, "测试中...", async () => {
+    try {
+      const o = readOcrForm();
+      const res = await apiJson("/api/ocr/test-api", {
+        method: "POST",
+        body: { api_base_url: o.api_base_url, api_key: o.api_key, api_model: o.api_model },
+      });
+      out.textContent = res.message;
+      out.style.color = res.ok ? "var(--ok)" : "var(--danger)";
+    } catch (err) {
+      out.textContent = err.message;
+      out.style.color = "var(--danger)";
+    }
+  });
 });
 
-document.getElementById("testLlmBtn").addEventListener("click", async () => {
+const testLlmBtn = document.getElementById("testLlmBtn");
+testLlmBtn.addEventListener("click", async () => {
   const out = document.getElementById("llmTestResult");
   out.textContent = "正在测试接口连通性...";
-  try {
-    const res = await apiJson("/api/settings/test-llm", { method: "POST", body: readLlmForm() });
-    out.textContent = res.message;
-    out.style.color = res.ok ? "var(--ok)" : "var(--danger)";
-  } catch (err) {
-    out.textContent = err.message;
-    out.style.color = "var(--danger)";
-  }
+  await withButtonLoading(testLlmBtn, "测试中...", async () => {
+    try {
+      const res = await apiJson("/api/settings/test-llm", { method: "POST", body: readLlmForm() });
+      out.textContent = res.message;
+      out.style.color = res.ok ? "var(--ok)" : "var(--danger)";
+    } catch (err) {
+      out.textContent = err.message;
+      out.style.color = "var(--danger)";
+    }
+  });
 });
 
 document.getElementById("settingsForm").addEventListener("submit", async (e) => {
   e.preventDefault();
-  try {
-    await apiJson("/api/settings", { method: "PUT", body: { ocr: readOcrForm(), llm: readLlmForm() } });
-    settingsDialog.close();
-    showToast("OCR 引擎与大模型设置已保存", "ok");
-  } catch (err) {
-    showToast(err.message, "danger");
-  }
+  const submitBtn = e.target.querySelector('button[type="submit"]');
+  await withButtonLoading(submitBtn, "保存中...", async () => {
+    try {
+      const ocrCfg = readOcrForm();
+      await apiJson("/api/settings", { method: "PUT", body: { ocr: ocrCfg, llm: readLlmForm() } });
+      updateActiveOcrPill(ocrCfg);
+      await closeTopLayer(settingsDialog);
+      showToast("OCR 引擎与大模型设置已保存", "ok");
+    } catch (err) {
+      showToast(err.message, "danger");
+    }
+  });
 });
 
-// Keyboard shortcuts (USB Foot pedal Space/Enter in capture; J/K/A in review)
+// Keyboard shortcuts (Ctrl+S in review editor; Space/Enter in capture; J/K/A in review)
 document.addEventListener("keydown", (e) => {
+  if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === "s" && state.activeTab === "review" && !settingsDialog.open) {
+    e.preventDefault();
+    document.getElementById("saveTextBtn").click();
+    return;
+  }
+
   const tag = (e.target && e.target.tagName) || "";
   if (tag === "INPUT" || tag === "TEXTAREA" || tag === "SELECT" || newBookDialog.open || settingsDialog.open) {
     return;
@@ -437,11 +528,20 @@ async function init() {
       switchTab("export");
       setTimeout(() => reviewCtrl.refreshJobs(), 450);
     },
+    onCleaned: (summary) => {
+      const dcBadge = document.getElementById("tabBadgeDataclean");
+      if (dcBadge && summary) {
+        const n = (summary.entries || 0) + (summary.table_rows || 0);
+        dcBadge.textContent = String(n);
+        dcBadge.classList.toggle("hidden", n === 0);
+      }
+    },
   });
 
   await refreshBooks();
   await dataCleanCtrl.loadTemplates();
   await refreshStats();
+  apiJson("/api/settings").then((cfg) => updateActiveOcrPill(cfg.ocr)).catch(() => {});
   captureCtrl.renderRecentStrip();
   connectSse();
 }

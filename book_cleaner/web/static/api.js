@@ -1,4 +1,4 @@
-/** Shared HTTP client, safe DOM helpers, Safari closedby dialog fallback, and Web Audio cues. */
+/** Shared HTTP client, safe DOM helpers, top-layer animated dialog close, theme toggle, and Web Audio cues. */
 
 export async function apiJson(url, options = {}) {
   const opts = { ...options };
@@ -36,8 +36,80 @@ export function el(tag, attrs = {}, children = []) {
   return node;
 }
 
+export function createStatusIcon(isWarn = false) {
+  const svgNS = "http://www.w3.org/2000/svg";
+  const svg = document.createElementNS(svgNS, "svg");
+  svg.setAttribute("viewBox", "0 0 24 24");
+  svg.setAttribute("class", "icon icon-sm");
+  svg.setAttribute("aria-hidden", "true");
+  svg.style.color = isWarn ? "var(--warn)" : "var(--ok)";
+
+  if (isWarn) {
+    const poly = document.createElementNS(svgNS, "path");
+    poly.setAttribute("d", "M10.29 3.86 1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z");
+    const line1 = document.createElementNS(svgNS, "line");
+    line1.setAttribute("x1", "12");
+    line1.setAttribute("y1", "9");
+    line1.setAttribute("x2", "12");
+    line1.setAttribute("y2", "13");
+    const line2 = document.createElementNS(svgNS, "line");
+    line2.setAttribute("x1", "12");
+    line2.setAttribute("y1", "17");
+    line2.setAttribute("x2", "12.01");
+    line2.setAttribute("y2", "17");
+    svg.append(poly, line1, line2);
+  } else {
+    const poly = document.createElementNS(svgNS, "polyline");
+    poly.setAttribute("points", "20 6 9 17 4 12");
+    svg.appendChild(poly);
+  }
+  return svg;
+}
+
+let supportsDisplayTransition;
+function canTransitionDisplay() {
+  if (supportsDisplayTransition !== undefined) return supportsDisplayTransition;
+  if (!window.CSS?.supports?.("transition-behavior", "allow-discrete") || !document.body) {
+    return false;
+  }
+  const probe = document.createElement("div");
+  probe.style.cssText = "transition: display 1s allow-discrete !important; display: block;";
+  document.body.appendChild(probe);
+  getComputedStyle(probe).display;
+  probe.style.display = "none";
+  supportsDisplayTransition = getComputedStyle(probe).display === "block";
+  probe.remove();
+  return supportsDisplayTransition;
+}
+
+function supportsTopLayerExit() {
+  return Boolean(window.CSS?.supports?.("overlay", "auto") && canTransitionDisplay());
+}
+
+export async function closeTopLayer(dialog) {
+  if (!dialog || !dialog.open) return;
+  if (dialog.hasAttribute("data-closing")) return;
+  if (!supportsTopLayerExit()) {
+    dialog.setAttribute("data-closing", "");
+    const animations = dialog.getAnimations ? dialog.getAnimations({ subtree: true }) : [];
+    if (animations.length > 0) {
+      await Promise.race([
+        Promise.allSettled(animations.map((a) => a.finished)),
+        new Promise((r) => setTimeout(r, 1200)),
+      ]);
+    }
+    if (!dialog.hasAttribute("data-closing")) return;
+    dialog.removeAttribute("data-closing");
+  }
+  dialog.close();
+}
+
 export function enableDialogLightDismissFallback(dialog) {
   if (!dialog) return;
+  dialog.addEventListener("cancel", (event) => {
+    event.preventDefault();
+    closeTopLayer(dialog);
+  });
   if (!("closedBy" in HTMLDialogElement.prototype)) {
     dialog.addEventListener("click", (event) => {
       if (event.target !== dialog) return;
@@ -47,7 +119,101 @@ export function enableDialogLightDismissFallback(dialog) {
         event.clientY <= rect.top + rect.height &&
         rect.left <= event.clientX &&
         event.clientX <= rect.left + rect.width;
-      if (!inside) dialog.close();
+      if (!inside) closeTopLayer(dialog);
+    });
+  }
+}
+
+export async function withButtonLoading(btn, busyText, asyncFn) {
+  if (!btn) return asyncFn();
+  if (btn.disabled) return;
+  const origChildren = Array.from(btn.childNodes);
+  btn.disabled = true;
+  btn.setAttribute("aria-busy", "true");
+  btn.textContent = busyText;
+  try {
+    return await asyncFn();
+  } finally {
+    btn.disabled = false;
+    btn.removeAttribute("aria-busy");
+    btn.replaceChildren(...origChildren);
+  }
+}
+
+export function wireTwoStepAction(btn, confirmLabel, onConfirm, timeoutMs = 3000) {
+  if (!btn) return;
+  let timer = null;
+  let origChildren = null;
+
+  function resetArm() {
+    clearTimeout(timer);
+    timer = null;
+    if (btn.dataset.armed === "1" && origChildren) {
+      delete btn.dataset.armed;
+      btn.replaceChildren(...origChildren);
+      origChildren = null;
+    }
+  }
+
+  btn.addEventListener("click", async () => {
+    if (btn.disabled) return;
+    if (btn.dataset.armed !== "1") {
+      origChildren = Array.from(btn.childNodes);
+      btn.dataset.armed = "1";
+      btn.textContent = confirmLabel;
+      timer = setTimeout(resetArm, timeoutMs);
+      return;
+    }
+    resetArm();
+    await onConfirm();
+  });
+}
+
+const THEME_STORAGE_KEY = "book_cleaner_theme";
+const THEME_CYCLE = ["system", "light", "dark"];
+const THEME_LABELS = {
+  system: "外观：跟随系统",
+  light: "外观：浅色纸张",
+  dark: "外观：深色暗房",
+};
+
+export function initThemeToggle(btn) {
+  function applyTheme(mode) {
+    const valid = THEME_CYCLE.includes(mode) ? mode : "system";
+    if (valid === "system") {
+      delete document.documentElement.dataset.theme;
+      try {
+        localStorage.removeItem(THEME_STORAGE_KEY);
+      } catch {
+        // Ignore storage errors
+      }
+    } else {
+      document.documentElement.dataset.theme = valid;
+      try {
+        localStorage.setItem(THEME_STORAGE_KEY, valid);
+      } catch {
+        // Ignore storage errors
+      }
+    }
+    if (btn) {
+      btn.textContent = THEME_LABELS[valid];
+      btn.dataset.themeMode = valid;
+    }
+  }
+
+  let initial = "system";
+  try {
+    initial = localStorage.getItem(THEME_STORAGE_KEY) || "system";
+  } catch {
+    initial = "system";
+  }
+  applyTheme(initial);
+
+  if (btn) {
+    btn.addEventListener("click", () => {
+      const cur = btn.dataset.themeMode || "system";
+      const next = THEME_CYCLE[(THEME_CYCLE.indexOf(cur) + 1) % THEME_CYCLE.length];
+      applyTheme(next);
     });
   }
 }
@@ -88,7 +254,10 @@ export function playBeep(kind = "ok") {
 export function showToast(message, level = "ok") {
   const stack = document.getElementById("toastStack");
   if (!stack) return;
-  const node = el("div", { class: `toast is-${level}`, text: message });
+  const node = el("div", { class: `toast is-${level}` }, [
+    el("span", { class: "toast-badge", "aria-hidden": "true" }),
+    el("span", { text: message }),
+  ]);
   stack.appendChild(node);
   setTimeout(() => node.remove(), 3600);
 }

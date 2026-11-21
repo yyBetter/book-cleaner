@@ -1,6 +1,14 @@
-/** Capture tab: backend OpenCV camera, browser getUserMedia, Android USB/Wi-Fi pairing, and folder import. */
+/** Capture tab: backend OpenCV camera, browser getUserMedia, Android USB/Wi-Fi pairing, drag-drop & folder import. */
 
-import { apiJson, el, playBeep, showToast, translateFlag } from "/static/api.js";
+import {
+  apiJson,
+  createStatusIcon,
+  el,
+  playBeep,
+  showToast,
+  translateFlag,
+  withButtonLoading,
+} from "/static/api.js";
 import { HandsOnSmartTrigger } from "/static/smart_trigger.js";
 
 export function createCaptureController(state, callbacks) {
@@ -33,6 +41,7 @@ export function createCaptureController(state, callbacks) {
   const backendHandsOnChk = document.getElementById("backendHandsOnChk");
   const backendCenterGuide = document.getElementById("backendCenterGuide");
   const backendSettleFill = document.getElementById("backendSettleFill");
+  const captureDropZone = document.getElementById("captureDropZone");
 
   const browserCamSelect = document.getElementById("browserCamSelect");
   const browserVideo = document.getElementById("browserVideo");
@@ -48,6 +57,7 @@ export function createCaptureController(state, callbacks) {
   const mobileUrlText = document.getElementById("mobileUrlText");
   const mobileUsbUrlText = document.getElementById("mobileUsbUrlText");
   const mobileHttpsBadge = document.getElementById("mobileHttpsBadge");
+  const copyMobileUrlBtn = document.getElementById("copyMobileUrlBtn");
   const adbStatusBox = document.getElementById("adbStatusBox");
   const recentStrip = document.getElementById("recentCaptureStrip");
 
@@ -113,11 +123,12 @@ export function createCaptureController(state, callbacks) {
     recentStrip.replaceChildren();
     if (!state.recentCaptured.length) {
       recentStrip.appendChild(
-        el("div", { style: "font-size:12px;color:var(--muted);padding:8px 0;", text: "暂无本轮拍摄记录" })
+        el("div", { class: "muted-note", style: "padding:8px 0;", text: "暂无本轮拍摄记录（支持拍照、拖拽或选择文件）" })
       );
       return;
     }
     for (const p of state.recentCaptured) {
+      const hasWarn = Boolean(p.qa_flags && p.qa_flags.length);
       const chip = el(
         "button",
         {
@@ -129,10 +140,7 @@ export function createCaptureController(state, callbacks) {
           el("img", { src: `/api/pages/${p.id}/image/thumb?t=${encodeURIComponent(p.updated_at || "")}`, alt: `P${p.seq_no}` }),
           el("div", { class: "thumb-chip-meta" }, [
             el("span", { text: `#${p.seq_no}${p.spread_side !== "S" ? p.spread_side : ""}` }),
-            el("span", {
-              text: p.qa_flags && p.qa_flags.length ? "⚠" : "✓",
-              style: `color:${p.qa_flags && p.qa_flags.length ? "var(--warn)" : "var(--ok)"}`,
-            }),
+            createStatusIcon(hasWarn),
           ]),
         ]
       );
@@ -215,6 +223,19 @@ export function createCaptureController(state, callbacks) {
     }
   }
 
+  if (copyMobileUrlBtn) {
+    copyMobileUrlBtn.addEventListener("click", async () => {
+      const txt = mobileUrlText.textContent.trim();
+      if (!txt || txt.startsWith("正在读取") || txt.startsWith("获取配对")) return;
+      try {
+        await navigator.clipboard.writeText(txt);
+        showToast("已复制手机连拍地址", "ok");
+      } catch {
+        showToast(`地址：${txt}`, "ok");
+      }
+    });
+  }
+
   async function refreshAdbStatus() {
     try {
       const st = await apiJson("/api/android/adb-status");
@@ -225,17 +246,20 @@ export function createCaptureController(state, callbacks) {
   }
 
   document.getElementById("refreshAdbBtn").addEventListener("click", refreshAdbStatus);
-  document.getElementById("adbReverseBtn").addEventListener("click", async () => {
-    try {
-      const res = await apiJson("/api/android/adb-reverse", {
-        method: "POST",
-        body: { book_id: state.currentBookId, open_on_phone: true },
-      });
-      adbStatusBox.textContent = res.message;
-      showToast(res.message, res.ok ? "ok" : "warn");
-    } catch (err) {
-      showToast(err.message, "danger");
-    }
+  const adbReverseBtn = document.getElementById("adbReverseBtn");
+  adbReverseBtn.addEventListener("click", async () => {
+    await withButtonLoading(adbReverseBtn, "打通通道中...", async () => {
+      try {
+        const res = await apiJson("/api/android/adb-reverse", {
+          method: "POST",
+          body: { book_id: state.currentBookId, open_on_phone: true },
+        });
+        adbStatusBox.textContent = res.message;
+        showToast(res.message, res.ok ? "ok" : "warn");
+      } catch (err) {
+        showToast(err.message, "danger");
+      }
+    });
   });
 
   function switchSource(srcKey) {
@@ -250,6 +274,38 @@ export function createCaptureController(state, callbacks) {
   }
 
   sourceBtns.forEach((b) => b.addEventListener("click", () => switchSource(b.dataset.source)));
+
+  // Drag-and-drop upload in capture viewport
+  if (captureDropZone) {
+    ["dragenter", "dragover"].forEach((evt) => {
+      captureDropZone.addEventListener(evt, (e) => {
+        e.preventDefault();
+        captureDropZone.classList.add("is-dragover");
+      });
+    });
+    ["dragleave", "drop"].forEach((evt) => {
+      captureDropZone.addEventListener(evt, (e) => {
+        e.preventDefault();
+        captureDropZone.classList.remove("is-dragover");
+      });
+    });
+    captureDropZone.addEventListener("drop", async (e) => {
+      const files = Array.from((e.dataTransfer && e.dataTransfer.files) || []).filter((f) =>
+        f.type.startsWith("image/")
+      );
+      if (!files.length) return;
+      let okCount = 0;
+      for (const f of files) {
+        try {
+          await uploadBlob(f, f.name, "upload");
+          okCount += 1;
+        } catch (err) {
+          showToast(`${f.name}: ${err.message}`, "danger");
+        }
+      }
+      if (okCount > 0) showToast(`已拖拽入库 ${okCount} 页图像，后台正在清洗与识别`, "ok");
+    });
+  }
 
   // Backend OpenCV Camera handlers
   async function scanBackendDevices() {
@@ -287,7 +343,7 @@ export function createCaptureController(state, callbacks) {
       if (st.auto_trigger_state === "HAND_IN_CENTER") backendCenterGuide.classList.add("is-hand");
       else if (st.auto_trigger_state === "SETTLING") backendCenterGuide.classList.add("is-settling");
     } else {
-      backendCamFeed.src = "";
+      backendCamFeed.src = "data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7";
       backendCamFeed.classList.add("hidden");
       backendCamPlaceholder.classList.remove("hidden");
       backendCamHudLeft.textContent = "状态：待机";
@@ -313,15 +369,18 @@ export function createCaptureController(state, callbacks) {
   }
 
   document.getElementById("scanBackendCamsBtn").addEventListener("click", scanBackendDevices);
-  document.getElementById("openBackendCamBtn").addEventListener("click", async () => {
-    try {
-      const idx = Number(backendCamSelect.value || 0);
-      const res = await apiJson("/api/camera/open", { method: "POST", body: { index: idx } });
-      updateBackendCamStatus(res.status);
-      showToast("后端摄像头预览已开启", "ok");
-    } catch (err) {
-      showToast(err.message, "danger");
-    }
+  const openBackendCamBtn = document.getElementById("openBackendCamBtn");
+  openBackendCamBtn.addEventListener("click", async () => {
+    await withButtonLoading(openBackendCamBtn, "开启中...", async () => {
+      try {
+        const idx = Number(backendCamSelect.value || 0);
+        const res = await apiJson("/api/camera/open", { method: "POST", body: { index: idx } });
+        updateBackendCamStatus(res.status);
+        showToast("后端摄像头预览已开启", "ok");
+      } catch (err) {
+        showToast(err.message, "danger");
+      }
+    });
   });
   document.getElementById("closeBackendCamBtn").addEventListener("click", async () => {
     const res = await apiJson("/api/camera/close", { method: "POST" });
@@ -441,42 +500,48 @@ export function createCaptureController(state, callbacks) {
   });
 
   // Folder bulk import
-  document.getElementById("startFolderImportBtn").addEventListener("click", async () => {
+  const startFolderImportBtn = document.getElementById("startFolderImportBtn");
+  startFolderImportBtn.addEventListener("click", async () => {
     if (!state.currentBookId) return;
     const folderPath = document.getElementById("folderPathInput").value.trim();
     if (!folderPath) {
       showToast("请填写本地目录路径", "warn");
       return;
     }
-    try {
-      const res = await apiJson(`/api/books/${state.currentBookId}/import-folder`, {
-        method: "POST",
-        body: {
-          folder_path: folderPath,
-          recursive: document.getElementById("folderRecursiveChk").checked,
-          profile_override: currentProfile(),
-        },
-      });
-      showToast(`批量导入任务 #${res.job.id} 已启动，请在「流水线大盘」查看进度`, "ok");
-      callbacks.onJobsUpdated();
-    } catch (err) {
-      showToast(err.message, "danger");
-    }
+    await withButtonLoading(startFolderImportBtn, "启动导入任务...", async () => {
+      try {
+        const res = await apiJson(`/api/books/${state.currentBookId}/import-folder`, {
+          method: "POST",
+          body: {
+            folder_path: folderPath,
+            recursive: document.getElementById("folderRecursiveChk").checked,
+            profile_override: currentProfile(),
+          },
+        });
+        showToast(`批量导入任务 #${res.job.id} 已启动，请在「流水线大盘」查看进度`, "ok");
+        callbacks.onJobsUpdated();
+      } catch (err) {
+        showToast(err.message, "danger");
+      }
+    });
   });
 
   // Save book default clean profile
-  document.getElementById("saveBookProfileBtn").addEventListener("click", async () => {
+  const saveBookProfileBtn = document.getElementById("saveBookProfileBtn");
+  saveBookProfileBtn.addEventListener("click", async () => {
     if (!state.currentBookId) return;
-    try {
-      const updated = await apiJson(`/api/books/${state.currentBookId}`, {
-        method: "PATCH",
-        body: { profile: currentProfile() },
-      });
-      callbacks.onBookUpdated(updated);
-      showToast("已保存为本书默认清洗模板", "ok");
-    } catch (err) {
-      showToast(err.message, "danger");
-    }
+    await withButtonLoading(saveBookProfileBtn, "保存中...", async () => {
+      try {
+        const updated = await apiJson(`/api/books/${state.currentBookId}`, {
+          method: "PATCH",
+          body: { profile: currentProfile() },
+        });
+        callbacks.onBookUpdated(updated);
+        showToast("已保存为本书默认清洗模板", "ok");
+      } catch (err) {
+        showToast(err.message, "danger");
+      }
+    });
   });
 
   // Shutter & Undo last shot

@@ -10,16 +10,16 @@
 <body>
   <main class="mobile-shell">
     <div class="card">
-      <div style="display:flex;justify-content:space-between;align-items:center;gap:8px;">
-        <div>
-          <div style="font-size:12px;color:var(--muted);">Android 采集端（压书手自动避让）</div>
-          <h1 id="mobileBookTitle" style="margin:2px 0 0;font-size:17px;">加载书目中...</h1>
+      <div class="toolbar-between" style="flex-wrap:nowrap;">
+        <div style="min-width:0;">
+          <div class="muted-note">Android 采集端（压书手自动避让）</div>
+          <h1 id="mobileBookTitle" style="margin:2px 0 0;font-size:16.5px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">加载书目中...</h1>
         </div>
         <span id="mobilePageCountPill" class="pill pill-ok">0 页</span>
       </div>
-      <div style="margin-top:10px;display:flex;gap:8px;align-items:center;">
-        <select id="mobileBookSelect" class="book-select" style="flex:1;"></select>
-        <label class="toggle-item" style="padding:6px 10px;font-size:12px;">
+      <div class="toolbar-row" style="margin-top:10px;flex-wrap:nowrap;">
+        <select id="mobileBookSelect" class="book-select" style="flex:1;min-width:0;"></select>
+        <label class="toggle-item toggle-compact">
           <input id="mobileSplitSpreadChk" type="checkbox">
           <span>双页拆单</span>
         </label>
@@ -28,14 +28,14 @@
 
     <!-- Secure context live Android Chrome studio (USB 127.0.0.1 or Wi-Fi HTTPS) -->
     <div id="mobileLiveCard" class="card hidden">
-      <div style="display:flex;flex-wrap:wrap;gap:6px;align-items:center;justify-content:space-between;margin-bottom:8px;">
-        <span id="mobileZeroStoragePill" class="pill pill-ok">内存直传电脑 · 手机 0 存储</span>
-        <div style="display:flex;gap:6px;align-items:center;">
+      <div class="toolbar-between" style="margin-bottom:8px;">
+        <span id="mobileZeroStoragePill" class="pill pill-ok">内存直传 · 手机 0 存储</span>
+        <div class="toolbar-row" style="gap:6px;">
           <span id="mobileCaptureModeBadge" class="pill">检测硬件静帧中...</span>
           <span id="mobileQueueBadge" class="pill">待传 0</span>
         </div>
       </div>
-      <div class="viewport-box" style="min-height:310px;">
+      <div class="viewport-box mobile-viewport">
         <video id="mobileVideo" autoplay playsinline muted></video>
         <div class="thumb-zone-left">拇指压书区<br>自动擦除</div>
         <div class="thumb-zone-right">拇指压书区<br>自动擦除</div>
@@ -48,22 +48,29 @@
       </div>
 
       <div class="mobile-ctrl-row">
-        <label class="toggle-item" style="flex:1;min-width:170px;">
+        <label class="toggle-item" style="flex:1;min-width:165px;">
           <input id="mobileAutoTriggerChk" type="checkbox" checked>
           <span>压书手辅助全自动抓拍</span>
         </label>
-        <button id="mobileTorchBtn" type="button" class="btn hidden">开启补光灯</button>
-        <button id="mobileUndoBtn" type="button" class="btn btn-warn">撤销上一页</button>
+        <button id="mobileTorchBtn" type="button" class="btn hidden">
+          <svg class="icon icon-sm" viewBox="0 0 24 24" aria-hidden="true"><polygon points="13 2 3 14 12 14 11 22 21 10 12 10 13 2"/></svg>
+          <span>开启补光灯</span>
+        </button>
+        <button id="mobileUndoBtn" type="button" class="btn btn-warn">
+          <svg class="icon icon-sm" viewBox="0 0 24 24" aria-hidden="true"><path d="M3 7v6h6"/><path d="M21 17a9 9 0 0 0-9-9 9 9 0 0 0-6 2.3L3 13"/></svg>
+          <span>撤销上一页</span>
+        </button>
       </div>
 
       <button id="mobileLiveShutterBtn" type="button" class="btn btn-primary mobile-shutter-big" style="margin-top:10px;">
-        手动补拍一页（内存直传）
+        <svg class="icon" viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="9"/><circle cx="12" cy="12" r="4"/></svg>
+        <span>手动补拍一页（内存直传）</span>
       </button>
     </div>
 
     <!-- Native Camera Capture (strictly plain-HTTP fallback when browser camera stream is unavailable) -->
     <div id="mobileNativeCard" class="card">
-      <div id="mobileContextNotice" style="font-size:12px;color:var(--muted);margin-bottom:10px;">
+      <div id="mobileContextNotice" class="muted-note" style="margin-bottom:10px;">
         当前为普通局域网 HTTP 备用模式（系统相机可能会生成临时相册文件）。建议使用 Android USB 直连或 Windows HTTPS 模式解锁「手机 0 存储」内存直传。
       </div>
       <label class="btn btn-primary mobile-shutter-big" style="cursor:pointer;">
@@ -72,9 +79,9 @@
       </label>
     </div>
 
-    <div id="mobileStatusBanner" class="card" style="background:var(--surface-alt);">
-      <div style="font-size:12px;color:var(--muted);">上传与即时质检反馈</div>
-      <div id="mobileQaResult" style="font-size:15px;font-weight:700;margin-top:4px;">准备就绪，双手可压住左右蓝区翻拍</div>
+    <div id="mobileStatusBanner" class="panel-inset">
+      <div class="muted-note">上传与即时质检反馈</div>
+      <div id="mobileQaResult" class="qa-summary-title" style="margin-top:4px;">准备就绪，双手可压住左右蓝区翻拍</div>
     </div>
 
     <div class="card">
