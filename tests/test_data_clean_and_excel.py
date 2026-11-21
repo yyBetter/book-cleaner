@@ -3,10 +3,13 @@
 from __future__ import annotations
 
 import io
+import json
 import time
 
+import httpx
 from fastapi.testclient import TestClient
 from openpyxl import Workbook, load_workbook
+from PIL import Image, ImageDraw
 
 from book_cleaner.api import create_app
 from book_cleaner.config import AppConfig
@@ -21,6 +24,7 @@ from book_cleaner.pipeline.data_clean import (
     sanitize_excel_text,
 )
 from book_cleaner.pipeline.excel_exporter import export_excel_workbook, read_headers_from_xlsx
+from book_cleaner.pipeline.llm_clean import LLMConfig, extract_sheet_rows_with_llm
 from book_cleaner.pipeline.ocr_engine import OCRBlock, OCRResult
 
 
@@ -419,4 +423,240 @@ def test_catboost_batch_sop_and_table_excel_contract(tmp_path):
         assert schema_cols == headers
     finally:
         wb.close()
+
+
+class _MultiSheetRouterStubOCR:
+    def __init__(self) -> None:
+        self._texts = [
+            "## 批次基础档案\n批次号: B20261101\n日期: 2026-11-01\n设备编号: LINE-01\n投料量: 1200 kg",
+            "## 过程运行记录\n批次号: B20261101\n\n| 记录时刻 | 奇葩温度列 | 溶氧 | 备注 |\n| --- | --- | --- | --- |\n| 08h | 31.5℃ | 46% | 正常 |\n| 12h | 32.5℃ | 44% | 平稳 |",
+            "## 化验检测记录\n批次号: B20261101\n\n| 取样时刻 | 化验浓度 | 镜检结果 |\n| --- | --- | --- |\n| 12h | 18.4 g/L | 正常 |",
+            "## SOP与异常交接\n批次号: B20261101\n日期: 2026-11-01\n标准操作步骤：前10h缓慢升温并观察溶氧曲线。",
+            "## 批次结果_Y\n批次号: B20261101\n完成日期: 2026-11-03\ny_效价: 4820 U/mL\ny_纯度: 85.2%\ny_收率: 91.5%",
+            "## 批次结果_Y\n批次号: B20261102\n完成日期: 2026-11-05\ny_效价: 4510 U/mL\ny_纯度: 83.1%",
+            "补充手写便签：备品备件领用记录待归类",
+        ]
+        self._idx = 0
+
+    def recognize(self, bgr, *, low_conf_threshold: float = 0.82) -> OCRResult:
+        txt = self._texts[min(self._idx, len(self._texts) - 1)]
+        self._idx += 1
+        return OCRResult(
+            blocks=[OCRBlock(bbox=[[20, 20], [500, 20], [500, 70], [20, 70]], text=txt.splitlines()[0], confidence=0.96)],
+            raw_text=txt,
+            formatted_text=txt,
+            avg_confidence=0.95,
+            min_confidence=0.94,
+            flags=[],
+        )
+
+
+def test_multisheet_xlsx_import_routing_alias_learning_and_multi_y_catboost(tmp_path):
+    # 1. Build a 5-sheet blank Excel template pack with 3 target_y columns
+    wb_tpl = Workbook()
+    ws1 = wb_tpl.active
+    ws1.title = "批次基础档案"
+    ws1.append(["批次号", "日期", "设备编号", "投料量"])
+    ws2 = wb_tpl.create_sheet("过程运行记录")
+    ws2.append(["批次号", "记录时刻", "温度", "溶氧", "备注"])
+    ws3 = wb_tpl.create_sheet("化验检测记录")
+    ws3.append(["批次号", "取样时刻", "化验浓度", "镜检结果"])
+    ws4 = wb_tpl.create_sheet("SOP与异常交接")
+    ws4.append(["批次号", "日期", "记录小节", "SOP与异常正文"])
+    ws5 = wb_tpl.create_sheet("批次结果_Y")
+    ws5.append(["批次号", "完成日期", "y_效价", "y_纯度", "y_收率"])
+    buf = io.BytesIO()
+    wb_tpl.save(buf)
+
+    cfg = AppConfig(data_dir=tmp_path / "data", clean_workers=1, ocr_workers=1)
+    app = create_app(cfg, start_workers=True, ocr_engine=_MultiSheetRouterStubOCR())
+
+    def _make_distinct_sharp_page(idx: int) -> bytes:
+        im = Image.new("RGB", (800, 1100), (248, 248, 246))
+        draw = ImageDraw.Draw(im)
+        # Distinct high-contrast geometric pattern per page so blur_score >> 80 and dHash is unique
+        for row in range(12):
+            if (row + idx) % 2 == 0 or (idx & (1 << (row % 4))):
+                y0 = 80 + row * 78 + (idx * 7) % 19
+                x0 = 90 + ((idx * 53 + row * 31) % 240)
+                w = 220 + ((idx + row) % 3) * 110
+                draw.rectangle([x0, y0, min(720, x0 + w), y0 + 26], fill=(24, 24, 27))
+        out = io.BytesIO()
+        im.save(out, format="JPEG", quality=92)
+        return out.getvalue()
+
+    with TestClient(app) as client:
+        up = client.post(
+            "/api/excel-templates/from-xlsx",
+            files={
+                "file": (
+                    "multi_batch_pack.xlsx",
+                    buf.getvalue(),
+                    "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+                )
+            },
+            data={"name": "五表多目标模板包"},
+        )
+        assert up.status_code == 201
+        tpl = up.json()
+        tpl_id = tpl["id"]
+        assert len(tpl["sheets"]) == 5
+        res_sheet = next(s for s in tpl["sheets"] if s["name"] == "批次结果_Y")
+        assert [f["name"] for f in res_sheet["fields"] if f["role"] == "target_y"] == ["y_效价", "y_纯度", "y_收率"]
+
+        # 2. Ingest 7 distinct pages (5 types for Batch 1 + 1 partial results for Batch 2 + 1 unassigned ambiguous note)
+        book = client.post("/api/books", json={"title": "多表分拣验证批次册"}).json()
+        book_id = book["id"]
+        page_ids = []
+        for idx in range(7):
+            cap = client.post(
+                f"/api/books/{book_id}/capture",
+                files={"file": (f"p_{idx + 1}.jpg", _make_distinct_sharp_page(idx), "image/jpeg")},
+            )
+            assert cap.status_code == 200
+            page_ids.append(cap.json()["pages"][0]["id"])
+
+        deadline = time.time() + 12.0
+        while time.time() < deadline:
+            st = client.get(f"/api/stats?book_id={book_id}").json()["book"]
+            if st["ready"] == 7:
+                break
+            time.sleep(0.08)
+        assert client.get(f"/api/stats?book_id={book_id}").json()["book"]["ready"] == 7
+
+        # 3. Inspect match-preview before alias learning
+        mp1 = client.get(f"/api/books/{book_id}/match-preview?template_id={tpl_id}").json()
+        assert mp1["coverage"]["matched_pages"] >= 6
+        proc_sheet = next(s for s in mp1["sheets"] if s["name"] == "过程运行记录")
+        temp_field = next(f for f in proc_sheet["fields"] if f["name"] == "温度")
+        quirk_map = next((m for m in proc_sheet["column_mappings"] if m["source_col"] == "奇葩温度列"), None)
+        assert quirk_map is not None
+        assert quirk_map["status"] == "unmatched"
+
+        # 4. Learn alias ("奇葩温度列" -> 温度) and verify immediate re-alignment & numeric extraction
+        learned = client.post(
+            f"/api/excel-templates/{tpl_id}/learn-alias",
+            json={
+                "sheet_id": proc_sheet["sheet_id"],
+                "field_key": temp_field["key"],
+                "source_alias": "奇葩温度列",
+            },
+        )
+        assert learned.status_code == 200
+        mp2 = client.get(f"/api/books/{book_id}/match-preview?template_id={tpl_id}").json()
+        proc2 = next(s for s in mp2["sheets"] if s["name"] == "过程运行记录")
+        quirk_map2 = next(m for m in proc2["column_mappings"] if m["source_col"] == "奇葩温度列")
+        assert quirk_map2["status"] == "matched_alias"
+        assert any(r.get(temp_field["key"]) == 31.5 for r in proc2["rows"])
+
+        # 5. Manually override page #7 into SOP sheet via page-assignments endpoint
+        sop_sheet = next(s for s in mp2["sheets"] if s["name"] == "SOP与异常交接")
+        assign_res = client.put(
+            f"/api/books/{book_id}/page-assignments",
+            json={"template_id": tpl_id, "page_id": page_ids[6], "sheet_id": sop_sheet["sheet_id"]},
+        )
+        assert assign_res.status_code == 200
+        mp3 = assign_res.json()
+        sop3 = next(s for s in mp3["sheets"] if s["name"] == "SOP与异常交接")
+        assert any(p["page_id"] == page_ids[6] and p["match_source"] == "manual" for p in sop3["assigned_pages"])
+
+        # 6. Export full workbook and inspect all sheets + CatBoost wide table & multi-y schema contract
+        exp = client.post(
+            f"/api/books/{book_id}/export",
+            json={"format": "xlsx", "template_id": tpl_id},
+        ).json()["job"]
+        deadline = time.time() + 12.0
+        while time.time() < deadline:
+            jd = client.get(f"/api/jobs/{exp['id']}").json()
+            if jd["status"] in ("DONE", "FAILED"):
+                break
+            time.sleep(0.05)
+        assert client.get(f"/api/jobs/{exp['id']}").json()["status"] == "DONE"
+
+        dl = client.get(f"/api/jobs/{exp['id']}/download")
+        assert dl.status_code == 200
+        wb_out = load_workbook(io.BytesIO(dl.content), data_only=True)
+        try:
+            assert wb_out.sheetnames == [
+                "批次基础档案",
+                "过程运行记录",
+                "化验检测记录",
+                "SOP与异常交接",
+                "批次结果_Y",
+                "异常待复核",
+                "清洗汇总报告",
+                "CatBoost_特征宽表",
+                "CatBoost_字段契约",
+            ]
+            for sname in ("批次基础档案", "过程运行记录", "批次结果_Y", "CatBoost_特征宽表"):
+                assert len(wb_out[sname].merged_cells.ranges) == 0
+
+            ws_cb = wb_out["CatBoost_特征宽表"]
+            headers = [c.value for c in ws_cb[1]]
+            assert headers[-3:] == ["y_效价", "y_纯度", "y_收率"]
+            assert ws_cb.max_row == 3  # header + 2 batches
+            b1 = dict(zip(headers, [c.value for c in ws_cb[2]]))
+            b2 = dict(zip(headers, [c.value for c in ws_cb[3]]))
+            assert b1["batch_id"] == "B20261101"
+            assert abs(float(b1["温度_mean"]) - 32.0) < 1e-6
+            assert abs(float(b1["投料量"]) - 1200.0) < 1e-6
+            assert abs(float(b1["y_效价"]) - 4820.0) < 1e-6
+            assert abs(float(b1["y_纯度"]) - 85.2) < 1e-6
+            assert abs(float(b1["y_收率"]) - 91.5) < 1e-6
+
+            assert b2["batch_id"] == "B20261102"
+            assert b2["温度_mean"] is None  # missing process stays true blank / NaN
+            assert b2["y_收率"] is None
+
+            ws_schema = wb_out["CatBoost_字段契约"]
+            role_by_col = {
+                ws_schema.cell(row=r, column=1).value: ws_schema.cell(row=r, column=2).value
+                for r in range(2, ws_schema.max_row + 1)
+            }
+            assert role_by_col["y_效价"] == "target_y"
+            assert role_by_col["y_纯度"] == "target_y"
+            assert role_by_col["y_收率"] == "target_y"
+            assert role_by_col["温度_mean"] == "num_feature"
+            assert role_by_col["review_required"] == "qa_gate"
+        finally:
+            wb_out.close()
+
+
+def test_llm_sheet_extract_mocked():
+    sheet_def = {
+        "sheet_id": "sheet_proc",
+        "name": "过程运行记录",
+        "mode": "table",
+        "fields": [
+            {"key": "batch_id", "name": "批次号", "role": "meta_id"},
+            {"key": "temp_c", "name": "温度", "role": "num_feature"},
+            {"key": "do_pct", "name": "溶氧", "role": "num_feature"},
+        ],
+    }
+
+    def _handler(request: httpx.Request) -> httpx.Response:
+        return httpx.Response(
+            200,
+            json={
+                "model": "mock-gpt",
+                "choices": [
+                    {
+                        "message": {
+                            "content": '```json\n{"rows": [{"batch_id": "B-99", "温度": 32.1, "do_pct": null}]}\n```'
+                        }
+                    }
+                ],
+            },
+        )
+
+    cfg = LLMConfig(mode="all", base_url="https://api.example.com/v1", api_key="sk-test", model="mock-gpt")
+    with httpx.Client(transport=httpx.MockTransport(_handler)) as client:
+        rows, meta = extract_sheet_rows_with_llm("批次 B-99，温度 32.1℃", sheet_def, cfg, client=client)
+
+    assert meta["model"] == "mock-gpt"
+    assert len(rows) == 1
+    assert rows[0]["batch_id"] == "B-99"
+    assert rows[0]["temp_c"] == 32.1
+    assert rows[0]["do_pct"] is None
+
 

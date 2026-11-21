@@ -545,95 +545,123 @@
         </div>
       </section>
 
-      <!-- TAB 4: DATA CLEANING & EXCEL SCHEMA -->
+      <!-- TAB 4: MULTI-SHEET VISUAL SORTING & DATA CLEAN -->
       <section id="tab-dataclean" class="tab-panel" role="tabpanel" aria-labelledby="tabBtn-dataclean">
-        <div class="dataclean-workstation">
-          <aside class="dataclean-inspector scroller">
-            <h2 class="card-title" style="margin:0;">清洗模板与 Excel 表头定义</h2>
+        <div class="pack-shell">
+          <div class="pack-topbar">
             <div class="toolbar-row">
-              <select id="excelTemplateSelect" class="book-select" style="flex:1;min-width:130px;"></select>
-              <button id="newTemplateBtn" type="button" class="btn btn-sm">+ 新建</button>
+              <span class="pack-bar-label">模板包</span>
+              <select id="excelTemplateSelect" class="book-select" style="max-width:270px;"></select>
               <label class="btn btn-sm" style="cursor:pointer;">
-                <span>导入 .xlsx</span>
+                <span>导入多 Sheet 模板 (.xlsx)</span>
                 <input id="importXlsxHeaderInput" type="file" accept=".xlsx" class="hidden">
               </label>
-            </div>
-
-            <div class="grid-2">
-              <div class="field-row">
-                <label for="entrySheetNameInput">正文条目 Sheet</label>
-                <input id="entrySheetNameInput" class="input" type="text" value="正文结构化条目">
-              </div>
-              <div class="field-row">
-                <label for="tableSheetNameInput">提取表格 Sheet</label>
-                <input id="tableSheetNameInput" class="input" type="text" value="提取表格明细">
-              </div>
-            </div>
-
-            <div class="switch-stack">
-              <div class="muted-note" style="font-weight:700;">通用清洗规则</div>
-              <label class="toggle-row"><span>全角数字字母转半角</span><input id="ruleFullwidthChk" class="toggle-switch" type="checkbox" checked></label>
-              <label class="toggle-row"><span>日期统一 YYYY-MM-DD</span><input id="ruleDatesChk" class="toggle-switch" type="checkbox" checked></label>
-              <label class="toggle-row"><span>剔除重复页眉 / 页脚</span><input id="ruleHeadersChk" class="toggle-switch" type="checkbox" checked></label>
-              <label class="toggle-row"><span>剔除乱码与控制符</span><input id="ruleNoiseChk" class="toggle-switch" type="checkbox" checked></label>
-              <label class="toggle-row"><span>正文条目自动去重</span><input id="ruleDedupChk" class="toggle-switch" type="checkbox" checked></label>
-              <label class="toggle-row">
-                <span>低置信标黄阈值</span>
-                <input id="ruleMinConfInput" type="number" step="0.01" min="0.50" max="0.99" value="0.82" style="width:74px;padding:3px 6px;" class="input">
-              </label>
-              <label class="toggle-row"><span>附带 CatBoost 建模特征宽表与字段契约</span><input id="ruleCatboostModeChk" class="toggle-switch" type="checkbox"></label>
-            </div>
-
-            <div class="toolbar-between" style="margin-top:4px;">
-              <strong class="muted-note">自定义 Excel 列映射</strong>
-              <button id="addSchemaColBtn" type="button" class="btn btn-sm">+ 新增字段列</button>
-            </div>
-            <div class="schema-head" aria-hidden="true">
-              <span>列名</span><span>方式</span><span>字段 / 规则</span><span>校验</span><span></span>
-            </div>
-            <div id="schemaColList" class="schema-list scroller"></div>
-
-            <div class="toolbar-row" style="margin-top:6px;">
-              <button id="saveTemplateBtn" type="button" class="btn btn-sm btn-soft">保存模板</button>
+              <button id="newTemplateBtn" type="button" class="btn btn-sm">+ 新建</button>
+              <button id="openCleanRulesBtn" type="button" class="btn btn-sm">清洗规则</button>
               <button id="deleteTemplateBtn" type="button" class="btn btn-sm btn-danger-ghost">删除</button>
-              <button id="runDataCleanBtn" type="button" class="btn btn-primary" style="flex:1;">运行结构化清洗与拆表</button>
             </div>
-          </aside>
+            <div class="toolbar-row">
+              <span id="packCoverageBadge" class="pill">准备匹配...</span>
+              <button id="refreshMatchBtn" type="button" class="btn btn-sm">重新匹配</button>
+              <button id="dcExportXlsxBtn" type="button" class="btn btn-primary btn-sm">导出多 Sheet Excel (.xlsx)</button>
+            </div>
+          </div>
 
-          <div class="dataclean-preview">
-            <div class="toolbar-between">
-              <div>
-                <h2 class="card-title" style="margin:0;">清洗预览与异常标黄审查</h2>
-                <div id="dcSummaryNote" class="muted-note" style="margin-top:2px;">点击左侧「运行结构化清洗与拆表」预览结构化数据</div>
+          <!-- Mode A: 3-Column Visual Sheet Sorting & Field Alignment Workbench -->
+          <div id="packWorkbench" class="pack-workbench">
+            <aside class="pack-col pack-drawer-col">
+              <div class="pack-col-head">
+                <span>① 模板 Sheet 抽屉</span>
+                <button id="addSheetBtn" type="button" class="btn btn-compact">+ 添加子表</button>
               </div>
-              <button id="dcExportXlsxBtn" type="button" class="btn btn-ok">导出多 Sheet Excel (.xlsx)</button>
-            </div>
+              <div id="packSheetList" class="pack-sheet-list scroller"></div>
+            </aside>
 
-            <div class="kpi-grid">
-              <div class="kpi-card"><div class="kpi-label">正文结构化条目</div><div id="dcKpiEntries" class="kpi-val">0</div></div>
-              <div class="kpi-card"><div class="kpi-label">提取独立表格</div><div id="dcKpiTables" class="kpi-val">0</div></div>
-              <div class="kpi-card"><div class="kpi-label">表格明细行数</div><div id="dcKpiTableRows" class="kpi-val">0</div></div>
-              <div class="kpi-card"><div class="kpi-label">异常待复核行</div><div id="dcKpiWarnings" class="kpi-val kpi-val-warn">0</div></div>
-            </div>
-
-            <div class="toolbar-between">
-              <div class="filter-pills">
-                <button class="btn btn-sm btn-primary is-active" data-dc-kind="ENTRY" type="button">正文结构化条目</button>
-                <button class="btn btn-sm" data-dc-kind="TABLE" type="button">提取表格明细</button>
-                <button class="btn btn-sm" data-dc-kind="WARNINGS" type="button">仅异常标黄行</button>
+            <section class="pack-col pack-pages-col">
+              <div class="pack-col-head">
+                <span id="packPagesHeading">② 归属本表的扫描页</span>
+                <span id="packPagesCount" class="muted-note">0 页</span>
               </div>
-              <div class="toolbar-row">
-                <button id="dcPrevPageBtn" type="button" class="btn btn-sm">上一页</button>
-                <span id="dcPagerInfo" class="muted-note mono">0 / 0</span>
-                <button id="dcNextPageBtn" type="button" class="btn btn-sm">下一页</button>
-              </div>
-            </div>
+              <div id="packPageList" class="pack-page-list scroller"></div>
+            </section>
 
-            <div class="dataclean-table-wrap scroller">
-              <table class="data-table">
-                <thead id="dcPreviewHead"></thead>
-                <tbody id="dcPreviewBody"></tbody>
-              </table>
+            <section class="pack-col pack-detail-col">
+              <div class="pack-detail-head">
+                <div class="segmented-bar" role="tablist" aria-label="子表对齐与配置视图">
+                  <button type="button" class="seg-btn is-active" data-pack-subtab="mapping">字段连线对齐</button>
+                  <button type="button" class="seg-btn" data-pack-subtab="preview">写入数据预览</button>
+                  <button type="button" class="seg-btn" data-pack-subtab="schema">编辑子表字段 &amp; 目标 y</button>
+                </div>
+                <div id="packDetailMeta" class="muted-note"></div>
+              </div>
+              <div id="packSubMapping" class="pack-subpane scroller"></div>
+              <div id="packSubPreview" class="pack-subpane hidden scroller"></div>
+              <div id="packSubSchema" class="pack-subpane hidden scroller"></div>
+            </section>
+          </div>
+
+          <!-- Mode B: Legacy Single-Sheet Fallback (Shown cleanly only for old single-sheet templates) -->
+          <div id="legacyCleanWorkbench" class="dataclean-workstation hidden">
+            <aside class="dataclean-inspector scroller">
+              <div class="toolbar-between">
+                <h2 class="card-title" style="margin:0;">单表清洗列映射</h2>
+                <button id="convertPackBtn" type="button" class="btn btn-compact">转为多 Sheet 模板包</button>
+              </div>
+              <div class="grid-2">
+                <div class="field-row">
+                  <label for="entrySheetNameInput">正文条目 Sheet</label>
+                  <input id="entrySheetNameInput" class="input" type="text" value="正文结构化条目">
+                </div>
+                <div class="field-row">
+                  <label for="tableSheetNameInput">提取表格 Sheet</label>
+                  <input id="tableSheetNameInput" class="input" type="text" value="提取表格明细">
+                </div>
+              </div>
+              <div class="toolbar-between">
+                <strong class="muted-note">自定义 Excel 列映射</strong>
+                <button id="addSchemaColBtn" type="button" class="btn btn-sm">+ 新增字段列</button>
+              </div>
+              <div class="schema-head" aria-hidden="true">
+                <span>列名</span><span>方式</span><span>字段 / 规则</span><span>校验</span><span></span>
+              </div>
+              <div id="schemaColList" class="schema-list scroller"></div>
+              <div class="toolbar-row" style="margin-top:6px;">
+                <button id="saveTemplateBtn" type="button" class="btn btn-sm btn-soft">保存模板</button>
+                <button id="runDataCleanBtn" type="button" class="btn btn-primary" style="flex:1;">运行结构化清洗与拆表</button>
+              </div>
+            </aside>
+
+            <div class="dataclean-preview">
+              <div class="toolbar-between">
+                <div>
+                  <h2 class="card-title" style="margin:0;">清洗预览与异常标黄审查</h2>
+                  <div id="dcSummaryNote" class="muted-note" style="margin-top:2px;">点击左侧「运行结构化清洗与拆表」预览结构化数据</div>
+                </div>
+              </div>
+              <div class="kpi-grid">
+                <div class="kpi-card"><div class="kpi-label">正文结构化条目</div><div id="dcKpiEntries" class="kpi-val">0</div></div>
+                <div class="kpi-card"><div class="kpi-label">提取独立表格</div><div id="dcKpiTables" class="kpi-val">0</div></div>
+                <div class="kpi-card"><div class="kpi-label">表格明细行数</div><div id="dcKpiTableRows" class="kpi-val">0</div></div>
+                <div class="kpi-card"><div class="kpi-label">异常待复核行</div><div id="dcKpiWarnings" class="kpi-val kpi-val-warn">0</div></div>
+              </div>
+              <div class="toolbar-between">
+                <div class="filter-pills">
+                  <button class="btn btn-sm btn-primary is-active" data-dc-kind="ENTRY" type="button">正文结构化条目</button>
+                  <button class="btn btn-sm" data-dc-kind="TABLE" type="button">提取表格明细</button>
+                  <button class="btn btn-sm" data-dc-kind="WARNINGS" type="button">仅异常标黄行</button>
+                </div>
+                <div class="toolbar-row">
+                  <button id="dcPrevPageBtn" type="button" class="btn btn-sm">上一页</button>
+                  <span id="dcPagerInfo" class="muted-note mono">0 / 0</span>
+                  <button id="dcNextPageBtn" type="button" class="btn btn-sm">下一页</button>
+                </div>
+              </div>
+              <div class="dataclean-table-wrap scroller">
+                <table class="data-table">
+                  <thead id="dcPreviewHead"></thead>
+                  <tbody id="dcPreviewBody"></tbody>
+                </table>
+              </div>
             </div>
           </div>
         </div>
@@ -649,22 +677,23 @@
                 <svg class="icon" viewBox="0 0 24 24" aria-hidden="true"><rect x="3" y="3" width="18" height="18" rx="2"/><path d="M3 9h18"/><path d="M9 21V9"/></svg>
                 <span>主力交付：多 Sheet 成品 Excel (.xlsx)</span>
               </h2>
-              <p class="muted-note" style="margin:0;">自动清洗、正文与表格拆轨，异常页高亮标黄直达复核：</p>
-              <div class="sheet-tab-strip" aria-hidden="true">
-                <span class="sheet-tab-chip">Sheet 1 · 正文结构化条目</span>
-                <span class="sheet-tab-chip">Sheet 2 · 提取表格明细</span>
-                <span class="sheet-tab-chip is-warn">Sheet 3 · 异常待复核 (标黄)</span>
-                <span class="sheet-tab-chip">Sheet 4 · 清洗汇总报告</span>
+              <p class="muted-note" style="margin:0;">自动按多表单抽屉分拣落表，异常页与未归类页高亮直达复核：</p>
+              <div id="exportSheetTabStrip" class="sheet-tab-strip" aria-live="polite">
+                <span class="sheet-tab-chip">正在读取模板子表...</span>
               </div>
               <div class="field-row" style="margin-top:8px;">
-                <label for="exportExcelTemplateSelect">导出套用表头模板</label>
+                <label for="exportExcelTemplateSelect">导出套用模板包</label>
                 <select id="exportExcelTemplateSelect" class="input"></select>
               </div>
-              <div id="exportCatboostHint" class="muted-note hidden" style="margin-top:4px;">
-                已启用 CatBoost 建模导出：将在成品中自动追加「CatBoost_特征宽表」（1 批次 1 行、去单位浮点）与「CatBoost_字段契约」。
+              <div id="exportCoverageSummary" class="export-coverage-banner">正在汇总当前工作集的匹配覆盖情况...</div>
+              <div id="exportCatboostHint" class="muted-note hidden" style="margin-top:6px;">
+                已开启 CatBoost 建模导出：将在成品中自动追加「CatBoost_特征宽表」（1 批次 1 行、多目标 y 独立放表尾）与「CatBoost_字段契约」。
               </div>
             </div>
-            <button class="btn btn-ok export-trigger" data-format="xlsx" type="button">生成并导出多 Sheet Excel (.xlsx)</button>
+            <div class="toolbar-row">
+              <button id="jumpToDatacleanBtn" type="button" class="btn btn-soft">去「4 表格」调整分拣与对齐 →</button>
+              <button class="btn btn-ok export-trigger" data-format="xlsx" type="button" style="flex:1;">生成并导出多 Sheet Excel (.xlsx)</button>
+            </div>
           </div>
 
           <!-- Compact Archive Formats Rack -->
@@ -897,6 +926,68 @@
         <div class="dialog-actions">
           <button type="button" class="btn" data-close-dialog="newTemplateDialog">取消</button>
           <button type="submit" class="btn btn-primary">创建模板</button>
+        </div>
+      </form>
+    </div>
+  </dialog>
+
+  <!-- Native light-dismiss Cleaning Rules & CatBoost Dialog -->
+  <dialog id="cleanRulesDialog" closedby="any" aria-labelledby="cleanRulesTitle">
+    <div class="dialog-inner">
+      <div class="dialog-head">
+        <h2 id="cleanRulesTitle">通用清洗规则与 CatBoost 建模导出</h2>
+        <button type="button" class="btn btn-sm" data-close-dialog="cleanRulesDialog">关闭</button>
+      </div>
+      <div class="switch-stack" style="margin-bottom:14px;">
+        <label class="toggle-row"><span>全角数字字母转半角</span><input id="ruleFullwidthChk" class="toggle-switch" type="checkbox" checked></label>
+        <label class="toggle-row"><span>日期统一 YYYY-MM-DD</span><input id="ruleDatesChk" class="toggle-switch" type="checkbox" checked></label>
+        <label class="toggle-row"><span>剔除重复页眉 / 页脚</span><input id="ruleHeadersChk" class="toggle-switch" type="checkbox" checked></label>
+        <label class="toggle-row"><span>剔除乱码与控制符</span><input id="ruleNoiseChk" class="toggle-switch" type="checkbox" checked></label>
+        <label class="toggle-row"><span>正文条目自动去重</span><input id="ruleDedupChk" class="toggle-switch" type="checkbox" checked></label>
+        <label class="toggle-row">
+          <span>低置信标黄阈值</span>
+          <input id="ruleMinConfInput" type="number" step="0.01" min="0.50" max="0.99" value="0.82" style="width:74px;padding:3px 6px;" class="input">
+        </label>
+        <label class="toggle-row"><span>导出时附带 CatBoost 建模宽表（含多目标 y 与字段契约）</span><input id="ruleCatboostModeChk" class="toggle-switch" type="checkbox" checked></label>
+      </div>
+      <div class="dialog-actions">
+        <button type="button" class="btn" data-close-dialog="cleanRulesDialog">取消</button>
+        <button id="saveRulesDialogBtn" type="button" class="btn btn-primary">保存规则并重新匹配</button>
+      </div>
+    </div>
+  </dialog>
+
+  <!-- Native light-dismiss Add Sheet Drawer Dialog -->
+  <dialog id="addSheetDialog" closedby="any" aria-labelledby="addSheetTitle">
+    <div class="dialog-inner">
+      <div class="dialog-head">
+        <h2 id="addSheetTitle">新增模板 Sheet 子表抽屉</h2>
+        <button type="button" class="btn btn-sm" data-close-dialog="addSheetDialog">关闭</button>
+      </div>
+      <form id="addSheetForm">
+        <div class="field-row">
+          <label for="newSheetNameInput">子表名称（Excel Sheet 名）</label>
+          <input id="newSheetNameInput" class="input" type="text" required placeholder="例如：消泡与补料记录 / 成品检测_Y">
+        </div>
+        <div class="field-row">
+          <label for="newSheetModeSelect">页面数据形态</label>
+          <select id="newSheetModeSelect" class="input">
+            <option value="record">单条静态记录表（如投料单、放罐验收单，1页=1行）</option>
+            <option value="table">多行明细数据表（如巡检表、化验表，1页=多行时序）</option>
+            <option value="text">SOP 规范与交接批注（文本归类与提炼）</option>
+          </select>
+        </div>
+        <div class="field-row">
+          <label for="newSheetKeywordsInput">认亲关键词（用中文或英文逗号隔开）</label>
+          <input id="newSheetKeywordsInput" class="input" type="text" placeholder="例如：补料, 消泡, 流速, 糖液">
+        </div>
+        <div class="field-row">
+          <label for="newSheetFieldsInput">初始目标列名（逗号隔开，y_ 开头自动识别为预测目标）</label>
+          <input id="newSheetFieldsInput" class="input" type="text" value="批次号, 记录时刻, 指标数值, 备注" placeholder="例如：批次号, 温度, pH, y_产出指标">
+        </div>
+        <div class="dialog-actions">
+          <button type="button" class="btn" data-close-dialog="addSheetDialog">取消</button>
+          <button type="submit" class="btn btn-primary">添加子表</button>
         </div>
       </form>
     </div>

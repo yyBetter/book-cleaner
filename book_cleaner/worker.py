@@ -802,7 +802,16 @@ class PipelineCoordinator:
             assert template is not None
             summary = self.run_data_cleaning_sync(book_id=book_id, template_id=template["id"])
             structured_rows = self.db.list_all_structured_rows(book_id)
-            return export_excel_workbook(book, template, structured_rows, summary, out_path)
+            page_assignments = self.db.list_page_assignments(book_id, int(template["id"]))
+            return export_excel_workbook(
+                book,
+                template,
+                structured_rows,
+                summary,
+                out_path,
+                pages=pages,
+                page_assignments=page_assignments,
+            )
 
         if fmt_norm == "pdf":
             return export_searchable_pdf(book, pages, out_path, self.storage)

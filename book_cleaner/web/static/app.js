@@ -109,7 +109,9 @@ function switchTab(tabKey, { focusTab = false } = {}) {
   if ((tabKey === "pipeline" || tabKey === "export") && reviewCtrl) {
     refreshStats();
     reviewCtrl.refreshJobs();
-    if (tabKey === "export" && dataCleanCtrl) dataCleanCtrl.loadTemplates();
+    if (tabKey === "export" && dataCleanCtrl) {
+      dataCleanCtrl.loadTemplates().then(() => dataCleanCtrl.refreshPreview());
+    }
   }
 }
 
@@ -181,7 +183,9 @@ bookSelect.addEventListener("change", async () => {
   captureCtrl.refreshMobileQr();
   await Promise.all([refreshStats(), captureCtrl.loadRecentFromBook()]);
   if (state.activeTab === "review") await reviewCtrl.refreshPageList();
-  if (state.activeTab === "dataclean" && dataCleanCtrl) await dataCleanCtrl.refreshPreview();
+  if ((state.activeTab === "dataclean" || state.activeTab === "export") && dataCleanCtrl) {
+    await dataCleanCtrl.refreshPreview();
+  }
   if (state.activeTab === "pipeline" || state.activeTab === "export") await reviewCtrl.refreshJobs();
 });
 
@@ -192,7 +196,9 @@ wireTwoStepAction(document.getElementById("deleteBookBtn"), "确认删整本？"
     await refreshBooks(res.fallback_book_id || null);
     await Promise.all([refreshStats(), captureCtrl.loadRecentFromBook()]);
     if (state.activeTab === "review") await reviewCtrl.refreshPageList();
-    if (state.activeTab === "dataclean" && dataCleanCtrl) await dataCleanCtrl.refreshPreview();
+    if ((state.activeTab === "dataclean" || state.activeTab === "export") && dataCleanCtrl) {
+      await dataCleanCtrl.refreshPreview();
+    }
     if (state.activeTab === "pipeline" || state.activeTab === "export") await reviewCtrl.refreshJobs();
     showToast("已删除书目并清理关联文件", "ok");
   } catch (err) {
@@ -585,6 +591,7 @@ async function init() {
 
   await refreshBooks();
   await dataCleanCtrl.loadTemplates();
+  await dataCleanCtrl.refreshPreview();
   await refreshStats();
   apiJson("/api/settings").then((cfg) => updateActiveOcrPill(cfg.ocr)).catch(() => {});
   await captureCtrl.loadRecentFromBook();

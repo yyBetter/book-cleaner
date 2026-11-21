@@ -95,6 +95,77 @@ CATBOOST_BATCH_COLUMNS: list[dict[str, Any]] = [
     {"key": "qa_status", "header": "质检状态", "source_type": "builtin", "pattern": "qa_status", "required": False},
 ]
 
+MULTISHEET_CATBOOST_PACK_SHEETS: list[dict[str, Any]] = [
+    {
+        "sheet_id": "sheet_base",
+        "name": "批次基础档案",
+        "mode": "record",
+        "match_keywords": ["基础信息", "投料", "配料", "批记录", "设备", "档案", "领料"],
+        "fields": [
+            {"key": "batch_id", "name": "批次号", "role": "meta_id", "agg": "last", "aliases": ["批号", "生产批号", "Lot", "batch_id"]},
+            {"key": "record_date", "name": "记录日期", "role": "time_split", "agg": "last", "aliases": ["日期", "制定日期", "生产日期"]},
+            {"key": "asset_id", "name": "设备编号", "role": "cat_feature", "agg": "last", "aliases": ["罐号", "工位", "生产线", "机台", "设备/卷宗编号"]},
+            {"key": "material_lot", "name": "原料批次", "role": "cat_feature", "agg": "last", "aliases": ["料批", "培养基批号", "原料批号"]},
+            {"key": "feed_mass", "name": "投料量", "role": "num_feature", "agg": "last", "aliases": ["配料量", "投料(kg)", "投料量(kg)"]},
+        ],
+    },
+    {
+        "sheet_id": "sheet_process",
+        "name": "过程运行记录",
+        "mode": "table",
+        "match_keywords": ["过程", "巡检", "运行", "阶段", "温度", "压力", "工序", "清晰度", "指标"],
+        "fields": [
+            {"key": "batch_id", "name": "批次号", "role": "meta_id", "agg": "last", "aliases": ["批号", "生产批号"]},
+            {"key": "time_point", "name": "记录时刻", "role": "time_split", "agg": "last", "aliases": ["时刻", "时间", "工龄", "阶段", "工序阶段"]},
+            {"key": "temp_c", "name": "温度", "role": "num_feature", "agg": "stats", "aliases": ["罐温", "温度(℃)", "Temp"]},
+            {"key": "pressure_mpa", "name": "压力", "role": "num_feature", "agg": "stats", "aliases": ["罐压", "压力(MPa)", "风压"]},
+            {"key": "do_pct", "name": "溶氧", "role": "num_feature", "agg": "stats", "aliases": ["DO", "溶解氧", "溶氧(%)"]},
+            {"key": "ph_val", "name": "pH", "role": "num_feature", "agg": "stats", "aliases": ["酸碱度", "pH值"]},
+            {"key": "target_metric", "name": "过程指标", "role": "num_feature", "agg": "stats", "aliases": ["目标指标", "补料速率", "转速"]},
+            {"key": "process_note", "name": "备注说明", "role": "text_feature", "agg": "join", "aliases": ["备注", "说明"]},
+        ],
+    },
+    {
+        "sheet_id": "sheet_lab",
+        "name": "化验检测记录",
+        "mode": "table",
+        "match_keywords": ["化验", "检测", "采样", "取样", "样品", "含量", "纯度", "镜检", "残糖"],
+        "fields": [
+            {"key": "batch_id", "name": "批次号", "role": "meta_id", "agg": "last", "aliases": ["批号"]},
+            {"key": "sample_time", "name": "取样时刻", "role": "time_split", "agg": "last", "aliases": ["采样时间", "时刻", "时间"]},
+            {"key": "assay_conc", "name": "化验浓度", "role": "num_feature", "agg": "stats", "aliases": ["浓度", "残糖", "效价", "氨基氮"]},
+            {"key": "assay_purity", "name": "过程纯度", "role": "num_feature", "agg": "stats", "aliases": ["纯度", "组分占比", "含量(%)"]},
+            {"key": "micro_check", "name": "镜检结果", "role": "cat_feature", "agg": "last", "aliases": ["镜检", "菌检", "无菌检查"]},
+        ],
+    },
+    {
+        "sheet_id": "sheet_sop",
+        "name": "SOP与异常交接",
+        "mode": "text",
+        "match_keywords": ["SOP", "规程", "操作步骤", "质量门禁", "注意事项", "异常", "交接", "偏差", "数字化"],
+        "fields": [
+            {"key": "batch_id", "name": "批次号", "role": "meta_id", "agg": "last", "aliases": ["批号"]},
+            {"key": "record_date", "name": "记录日期", "role": "time_split", "agg": "last", "aliases": ["日期", "制定日期"]},
+            {"key": "section_title", "name": "记录小节", "role": "cat_feature", "agg": "last", "aliases": ["标题", "章节"]},
+            {"key": "sop_content", "name": "SOP与异常正文", "role": "text_feature", "agg": "join", "aliases": ["正文", "内容", "交接说明", "清洗后正文"]},
+        ],
+    },
+    {
+        "sheet_id": "sheet_results_y",
+        "name": "批次结果指标_Y",
+        "mode": "record",
+        "match_keywords": ["结果", "放罐", "验收", "终检", "收率", "结算", "汇总", "产出", "成品"],
+        "fields": [
+            {"key": "batch_id", "name": "批次号", "role": "meta_id", "agg": "last", "aliases": ["批号"]},
+            {"key": "finish_date", "name": "完成日期", "role": "time_split", "agg": "last", "aliases": ["放罐日期", "验收日期", "日期"]},
+            {"key": "y_main_output", "name": "y_主产出指标", "role": "target_y", "agg": "last", "aliases": ["最终效价", "终检效价", "主产出", "产出指标", "效价"]},
+            {"key": "y_purity", "name": "y_核心纯度", "role": "target_y", "agg": "last", "aliases": ["最终纯度", "核心纯度", "纯度", "组分占比"]},
+            {"key": "y_yield", "name": "y_总收率", "role": "target_y", "agg": "last", "aliases": ["总收率", "收率", "得率", "回收率"]},
+            {"key": "y_grade", "name": "y_质量判定", "role": "target_y", "agg": "last", "aliases": ["质量判定", "合格判定", "质量等级", "判定"]},
+        ],
+    },
+]
+
 
 def utc_now_iso() -> str:
     """Return compact UTC ISO-8601 timestamp."""
@@ -227,9 +298,22 @@ class Database:
                     table_sheet_name TEXT NOT NULL DEFAULT '提取表格明细',
                     rules_json TEXT NOT NULL,
                     columns_json TEXT NOT NULL,
+                    sheets_json TEXT NOT NULL DEFAULT '[]',
                     created_at TEXT NOT NULL,
                     updated_at TEXT NOT NULL
                 );
+
+                CREATE TABLE IF NOT EXISTS page_sheet_assignments (
+                    book_id INTEGER NOT NULL REFERENCES books(id) ON DELETE CASCADE,
+                    template_id INTEGER NOT NULL REFERENCES excel_templates(id) ON DELETE CASCADE,
+                    page_id INTEGER NOT NULL REFERENCES pages(id) ON DELETE CASCADE,
+                    sheet_id TEXT NOT NULL,
+                    llm_rows_json TEXT NOT NULL DEFAULT '[]',
+                    updated_at TEXT NOT NULL,
+                    PRIMARY KEY (book_id, template_id, page_id)
+                );
+
+                CREATE INDEX IF NOT EXISTS idx_assign_book_tpl ON page_sheet_assignments(book_id, template_id);
 
                 CREATE TABLE IF NOT EXISTS structured_rows (
                     id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -251,6 +335,14 @@ class Database:
                 CREATE INDEX IF NOT EXISTS idx_struct_book_warn ON structured_rows(book_id, warnings_json);
                 """
             )
+            tpl_cols = {
+                r["name"]
+                for r in conn.execute("PRAGMA table_info(excel_templates)").fetchall()
+            }
+            if "sheets_json" not in tpl_cols:
+                conn.execute(
+                    "ALTER TABLE excel_templates ADD COLUMN sheets_json TEXT NOT NULL DEFAULT '[]'"
+                )
             now = utc_now_iso()
             for key, default_val in DEFAULT_SETTINGS.items():
                 conn.execute(
@@ -266,8 +358,8 @@ class Database:
                     """
                     INSERT INTO excel_templates(
                         name, description, entry_sheet_name, table_sheet_name,
-                        rules_json, columns_json, created_at, updated_at
-                    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+                        rules_json, columns_json, sheets_json, created_at, updated_at
+                    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
                     """,
                     (
                         "通用书籍混合清洗模板",
@@ -276,6 +368,7 @@ class Database:
                         "提取表格明细",
                         json.dumps(DEFAULT_EXCEL_RULES, ensure_ascii=False),
                         json.dumps(DEFAULT_EXCEL_COLUMNS, ensure_ascii=False),
+                        "[]",
                         now,
                         now,
                     ),
@@ -289,8 +382,8 @@ class Database:
                     """
                     INSERT INTO excel_templates(
                         name, description, entry_sheet_name, table_sheet_name,
-                        rules_json, columns_json, created_at, updated_at
-                    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+                        rules_json, columns_json, sheets_json, created_at, updated_at
+                    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
                     """,
                     (
                         "批次记录与 CatBoost 建模标准模板",
@@ -299,6 +392,31 @@ class Database:
                         "提取表格明细",
                         json.dumps(CATBOOST_BATCH_RULES, ensure_ascii=False),
                         json.dumps(CATBOOST_BATCH_COLUMNS, ensure_ascii=False),
+                        "[]",
+                        now,
+                        now,
+                    ),
+                )
+            pack_row = conn.execute(
+                "SELECT 1 FROM excel_templates WHERE name = ? LIMIT 1",
+                ("多表批次记录与多目标 CatBoost 模板包",),
+            ).fetchone()
+            if pack_row is None:
+                conn.execute(
+                    """
+                    INSERT INTO excel_templates(
+                        name, description, entry_sheet_name, table_sheet_name,
+                        rules_json, columns_json, sheets_json, created_at, updated_at
+                    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+                    """,
+                    (
+                        "多表批次记录与多目标 CatBoost 模板包",
+                        "多Sheet抽屉分拣 + 字段别名自学习 + 多目标y宽表输出（适配多单据批次与CatBoost）",
+                        "正文结构化条目",
+                        "提取表格明细",
+                        json.dumps(CATBOOST_BATCH_RULES, ensure_ascii=False),
+                        json.dumps(CATBOOST_BATCH_COLUMNS, ensure_ascii=False),
+                        json.dumps(MULTISHEET_CATBOOST_PACK_SHEETS, ensure_ascii=False),
                         now,
                         now,
                     ),
@@ -997,8 +1115,13 @@ class Database:
             cols = json.loads(d.get("columns_json") or "[]")
         except json.JSONDecodeError:
             cols = []
+        try:
+            sheets = json.loads(d.get("sheets_json") or "[]")
+        except json.JSONDecodeError:
+            sheets = []
         d["rules"] = {**DEFAULT_EXCEL_RULES, **rules}
         d["columns"] = cols
+        d["sheets"] = sheets if isinstance(sheets, list) else []
         return d
 
     @staticmethod
@@ -1041,18 +1164,20 @@ class Database:
         table_sheet_name: str = "提取表格明细",
         rules: dict[str, Any] | None = None,
         columns: list[dict[str, Any]] | None = None,
+        sheets: list[dict[str, Any]] | None = None,
     ) -> dict[str, Any]:
         now = utc_now_iso()
         merged_rules = {**DEFAULT_EXCEL_RULES, **(rules or {})}
         cols = columns if columns is not None else [dict(c) for c in DEFAULT_EXCEL_COLUMNS]
+        sheets_list = sheets if isinstance(sheets, list) else []
         conn = self._get_conn()
         with self._write_lock:
             cur = conn.execute(
                 """
                 INSERT INTO excel_templates(
                     name, description, entry_sheet_name, table_sheet_name,
-                    rules_json, columns_json, created_at, updated_at
-                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+                    rules_json, columns_json, sheets_json, created_at, updated_at
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
                 """,
                 (
                     name.strip() or "自定义模板",
@@ -1061,6 +1186,7 @@ class Database:
                     table_sheet_name.strip() or "提取表格明细",
                     json.dumps(merged_rules, ensure_ascii=False),
                     json.dumps(cols, ensure_ascii=False),
+                    json.dumps(sheets_list, ensure_ascii=False),
                     now,
                     now,
                 ),
@@ -1084,6 +1210,8 @@ class Database:
             )
         if "columns" in fields and isinstance(fields["columns"], list):
             updates["columns_json"] = json.dumps(fields["columns"], ensure_ascii=False)
+        if "sheets" in fields and isinstance(fields["sheets"], list):
+            updates["sheets_json"] = json.dumps(fields["sheets"], ensure_ascii=False)
         if not updates:
             return existing
         updates["updated_at"] = utc_now_iso()
@@ -1093,6 +1221,117 @@ class Database:
         with self._write_lock:
             conn.execute(f"UPDATE excel_templates SET {assignments} WHERE id = ?", params)
         return self.get_excel_template(template_id)
+
+    def list_page_assignments(self, book_id: int, template_id: int) -> dict[int, dict[str, Any]]:
+        conn = self._get_conn()
+        rows = conn.execute(
+            """
+            SELECT page_id, sheet_id, llm_rows_json, updated_at
+            FROM page_sheet_assignments
+            WHERE book_id = ? AND template_id = ?
+            """,
+            (int(book_id), int(template_id)),
+        ).fetchall()
+        out: dict[int, dict[str, Any]] = {}
+        for r in rows:
+            try:
+                llm_rows = json.loads(r["llm_rows_json"] or "[]")
+            except json.JSONDecodeError:
+                llm_rows = []
+            out[int(r["page_id"])] = {
+                "page_id": int(r["page_id"]),
+                "sheet_id": str(r["sheet_id"]),
+                "llm_rows": llm_rows if isinstance(llm_rows, list) else [],
+                "updated_at": str(r["updated_at"]),
+            }
+        return out
+
+    def set_page_assignment(
+        self,
+        book_id: int,
+        template_id: int,
+        page_id: int,
+        sheet_id: str,
+        llm_rows: list[dict[str, Any]] | None = None,
+    ) -> None:
+        sheet_clean = str(sheet_id or "").strip()
+        conn = self._get_conn()
+        now = utc_now_iso()
+        with self._write_lock:
+            if sheet_clean == "__auto__" and llm_rows is None:
+                conn.execute(
+                    """
+                    DELETE FROM page_sheet_assignments
+                    WHERE book_id = ? AND template_id = ? AND page_id = ?
+                    """,
+                    (int(book_id), int(template_id), int(page_id)),
+                )
+                return
+            if llm_rows is None:
+                existing = conn.execute(
+                    """
+                    SELECT llm_rows_json FROM page_sheet_assignments
+                    WHERE book_id = ? AND template_id = ? AND page_id = ?
+                    """,
+                    (int(book_id), int(template_id), int(page_id)),
+                ).fetchone()
+                llm_json = str(existing["llm_rows_json"]) if existing else "[]"
+            else:
+                llm_json = json.dumps(llm_rows, ensure_ascii=False)
+            conn.execute(
+                """
+                INSERT INTO page_sheet_assignments(
+                    book_id, template_id, page_id, sheet_id, llm_rows_json, updated_at
+                ) VALUES (?, ?, ?, ?, ?, ?)
+                ON CONFLICT(book_id, template_id, page_id) DO UPDATE SET
+                    sheet_id = excluded.sheet_id,
+                    llm_rows_json = excluded.llm_rows_json,
+                    updated_at = excluded.updated_at
+                """,
+                (int(book_id), int(template_id), int(page_id), sheet_clean, llm_json, now),
+            )
+
+    def learn_template_field_alias(
+        self,
+        template_id: int,
+        sheet_id: str,
+        field_key: str,
+        source_alias: str,
+    ) -> dict[str, Any]:
+        tpl = self.get_excel_template(template_id)
+        if tpl is None:
+            raise KeyError(f"Excel template {template_id} not found")
+        alias_clean = str(source_alias or "").strip()
+        if not alias_clean:
+            raise ValueError("字段别名不能为空")
+        alias_norm = alias_clean.lower()
+
+        sheets = [dict(s) for s in (tpl.get("sheets") or [])]
+        target_sheet = next((s for s in sheets if s.get("sheet_id") == sheet_id), None)
+        if target_sheet is None:
+            raise KeyError(f"Sheet {sheet_id} not found in template {template_id}")
+
+        updated_fields: list[dict[str, Any]] = []
+        found_field = False
+        for raw_f in target_sheet.get("fields") or []:
+            f = dict(raw_f)
+            aliases = [str(a).strip() for a in (f.get("aliases") or []) if str(a).strip()]
+            # Remove conflicting alias from sibling fields so one source col maps cleanly
+            aliases = [a for a in aliases if a.lower() != alias_norm]
+            if f.get("key") == field_key:
+                found_field = True
+                if str(f.get("name", "")).strip().lower() != alias_norm:
+                    aliases.append(alias_clean)
+            f["aliases"] = aliases
+            updated_fields.append(f)
+
+        if not found_field:
+            raise KeyError(f"Field {field_key} not found in sheet {sheet_id}")
+        target_sheet["fields"] = updated_fields
+
+        updated = self.update_excel_template(template_id, sheets=sheets)
+        assert updated is not None
+        return updated
 
     def delete_excel_template(self, template_id: int) -> bool:
         templates = self.list_excel_templates()

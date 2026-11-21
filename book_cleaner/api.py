@@ -16,15 +16,22 @@ from fastapi.responses import FileResponse, HTMLResponse, Response, StreamingRes
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, Field
 
+from openpyxl import load_workbook
+
 from book_cleaner import __version__
 from book_cleaner.android_adb import get_adb_status, setup_adb_reverse
 from book_cleaner.config import AppConfig
-from book_cleaner.db import Database
+from book_cleaner.db import CATBOOST_BATCH_RULES, Database
 from book_cleaner.demo_generator import generate_demo_pages
 from book_cleaner.pipeline.deepseek_addon import DEFAULT_HF_REPO
-from book_cleaner.pipeline.excel_exporter import read_headers_from_xlsx
-from book_cleaner.pipeline.llm_clean import LLMConfig, test_llm_connection
+from book_cleaner.pipeline.excel_exporter import read_headers_from_xlsx, read_workbook_sheets_from_xlsx
+from book_cleaner.pipeline.llm_clean import (
+    LLMConfig,
+    extract_sheet_rows_with_llm,
+    test_llm_connection,
+)
 from book_cleaner.pipeline.ocr_router import OCRSettings, test_deepseek_api_connection
+from book_cleaner.pipeline.sheet_matcher import match_book_to_template_pack
 from book_cleaner.storage import ShardedStorage
 from book_cleaner.worker import PipelineCoordinator
 
@@ -82,6 +89,7 @@ class ExcelTemplateCreate(BaseModel):
     table_sheet_name: str = "提取表格明细"
     rules: dict[str, Any] | None = None
     columns: list[dict[str, Any]] | None = None
+    sheets: list[dict[str, Any]] | None = None
 
 
 class ExcelTemplateUpdate(BaseModel):
@@ -91,6 +99,24 @@ class ExcelTemplateUpdate(BaseModel):
     table_sheet_name: str | None = None
     rules: dict[str, Any] | None = None
     columns: list[dict[str, Any]] | None = None
+    sheets: list[dict[str, Any]] | None = None
+
+
+class PageAssignmentRequest(BaseModel):
+    template_id: int | None = None
+    page_id: int
+    sheet_id: str
+
+
+class LearnAliasRequest(BaseModel):
+    sheet_id: str
+    field_key: str
+    source_alias: str
+
+
+class LLMSheetExtractRequest(BaseModel):
+    template_id: int | None = None
+    sheet_id: str
 
 
 class DataCleanRunRequest(BaseModel):
@@ -741,6 +767,7 @@ def create_app(
             table_sheet_name=body.table_sheet_name,
             rules=body.rules,
             columns=body.columns,
+            sheets=body.sheets,
         )
 
     @app.put("/api/excel-templates/{template_id}")
@@ -753,6 +780,7 @@ def create_app(
             table_sheet_name=body.table_sheet_name,
             rules=body.rules,
             columns=body.columns,
+            sheets=body.sheets,
         )
         if tpl is None:
             raise HTTPException(status_code=404, detail="Excel 模板不存在")
@@ -772,18 +800,165 @@ def create_app(
     async def create_template_from_xlsx(
         file: UploadFile = File(...),
         name: str = Form(""),
+        force_pack: bool = Form(False),
     ) -> dict[str, Any]:
         raw_bytes = await file.read()
+        try:
+            wb_check = load_workbook(io.BytesIO(raw_bytes), read_only=True, data_only=True)
+            sheet_count = len(wb_check.sheetnames)
+            wb_check.close()
+        except Exception as exc:
+            raise HTTPException(status_code=400, detail=f"解析 Excel 工作簿失败: {exc}") from exc
+
+        stem = Path(file.filename or "template.xlsx").stem
+        if sheet_count >= 2 or force_pack:
+            try:
+                parsed_sheets = read_workbook_sheets_from_xlsx(raw_bytes)
+            except Exception as exc:
+                raise HTTPException(status_code=400, detail=f"解析多 Sheet Excel 模板失败: {exc}") from exc
+            tpl_name = name.strip() or f"导入多表模板 - {stem}"
+            return db.create_excel_template(
+                name=tpl_name,
+                description=f"从现有 .xlsx 导入 {len(parsed_sheets)} 张子表组成的多表模板包",
+                rules=dict(CATBOOST_BATCH_RULES),
+                sheets=parsed_sheets,
+            )
+
         try:
             columns = read_headers_from_xlsx(raw_bytes)
         except Exception as exc:
             raise HTTPException(status_code=400, detail=f"解析 Excel 表头失败: {exc}") from exc
-        tpl_name = name.strip() or f"导入模板 - {Path(file.filename or 'template.xlsx').stem}"
+        tpl_name = name.strip() or f"导入模板 - {stem}"
         return db.create_excel_template(
             name=tpl_name,
             description="从现有 .xlsx 第一行表头自动生成",
             columns=columns,
         )
+
+    def _build_match_preview_payload(book_id: int, template_id: int | None) -> dict[str, Any]:
+        book = db.get_book(book_id)
+        if book is None:
+            raise HTTPException(status_code=404, detail="书目不存在")
+        tpl = (
+            db.get_excel_template(template_id)
+            if template_id is not None
+            else db.get_default_excel_template()
+        )
+        if tpl is None:
+            raise HTTPException(status_code=404, detail="Excel 模板不存在")
+        pages = db.list_export_pages(book_id)
+        assignments = db.list_page_assignments(book_id, int(tpl["id"]))
+        res = match_book_to_template_pack(book, pages, tpl, assignments)
+        # Trim row preview sizes for snappy JSON delivery
+        for s in res.get("sheets") or []:
+            trimmed_rows = []
+            for r in (s.get("rows") or [])[:100]:
+                meta = r.get("_meta") or {}
+                trimmed_rows.append(
+                    {
+                        **{k: v for k, v in r.items() if k != "_meta"},
+                        "_page_no": meta.get("page_no", 0),
+                        "_source": meta.get("source", "offline"),
+                        "_warnings": meta.get("warnings", []),
+                        "_ocr_confidence": meta.get("ocr_confidence", 0.0),
+                    }
+                )
+            s["total_row_count"] = len(s.get("rows") or [])
+            s["rows"] = trimmed_rows
+        cb = res.get("catboost_dataset") or {}
+        cb_rows = list(cb.get("rows") or [])
+        res["catboost_dataset"] = {
+            **cb,
+            "total_row_count": len(cb_rows),
+            "rows": cb_rows[:50],
+        }
+        return res
+
+    @app.get("/api/books/{book_id}/match-preview")
+    def get_book_match_preview(
+        book_id: int,
+        template_id: int | None = Query(None),
+    ) -> dict[str, Any]:
+        return _build_match_preview_payload(book_id, template_id)
+
+    @app.put("/api/books/{book_id}/page-assignments")
+    def update_page_assignment(book_id: int, body: PageAssignmentRequest) -> dict[str, Any]:
+        if db.get_book(book_id) is None:
+            raise HTTPException(status_code=404, detail="书目不存在")
+        tpl = (
+            db.get_excel_template(body.template_id)
+            if body.template_id is not None
+            else db.get_default_excel_template()
+        )
+        if tpl is None:
+            raise HTTPException(status_code=404, detail="Excel 模板不存在")
+        page = db.get_page(body.page_id)
+        if page is None or int(page["book_id"]) != int(book_id):
+            raise HTTPException(status_code=404, detail="页面不属于当前工作集")
+        db.set_page_assignment(book_id, int(tpl["id"]), int(body.page_id), body.sheet_id)
+        return _build_match_preview_payload(book_id, int(tpl["id"]))
+
+    @app.post("/api/excel-templates/{template_id}/learn-alias")
+    def learn_template_alias(template_id: int, body: LearnAliasRequest) -> dict[str, Any]:
+        try:
+            return db.learn_template_field_alias(
+                template_id=template_id,
+                sheet_id=body.sheet_id,
+                field_key=body.field_key,
+                source_alias=body.source_alias,
+            )
+        except KeyError as exc:
+            raise HTTPException(status_code=404, detail=str(exc)) from exc
+        except ValueError as exc:
+            raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+    @app.post("/api/books/{book_id}/pages/{page_id}/llm-extract-sheet")
+    def llm_extract_page_to_sheet(
+        book_id: int,
+        page_id: int,
+        body: LLMSheetExtractRequest,
+    ) -> dict[str, Any]:
+        if db.get_book(book_id) is None:
+            raise HTTPException(status_code=404, detail="书目不存在")
+        page = db.get_page(page_id)
+        if page is None or int(page["book_id"]) != int(book_id):
+            raise HTTPException(status_code=404, detail="页面不属于当前工作集")
+        tpl = (
+            db.get_excel_template(body.template_id)
+            if body.template_id is not None
+            else db.get_default_excel_template()
+        )
+        if tpl is None:
+            raise HTTPException(status_code=404, detail="Excel 模板不存在")
+        sheet_def = next(
+            (s for s in (tpl.get("sheets") or []) if s.get("sheet_id") == body.sheet_id),
+            None,
+        )
+        if sheet_def is None:
+            raise HTTPException(status_code=404, detail="目标模板子表不存在")
+
+        cfg = LLMConfig.from_dict(db.get_settings().get("llm"))
+        if not cfg.base_url or not cfg.api_key:
+            raise HTTPException(
+                status_code=400,
+                detail="请先在右上角「OCR 设置 → 文本级 LLM 精校设置」中填写 Base URL 与 API Key",
+            )
+        txt = str(page.get("clean_text") or page.get("ocr_text") or "").strip()
+        if not txt:
+            raise HTTPException(status_code=400, detail="当前页面尚未完成 OCR 识别或正文为空")
+        try:
+            rows, meta = extract_sheet_rows_with_llm(txt, sheet_def, cfg)
+        except Exception as exc:
+            raise HTTPException(status_code=502, detail=f"大模型填表调用失败: {exc}") from exc
+
+        db.set_page_assignment(
+            book_id=book_id,
+            template_id=int(tpl["id"]),
+            page_id=page_id,
+            sheet_id=body.sheet_id,
+            llm_rows=rows,
+        )
+        return {"rows": rows, "count": len(rows), "meta": meta}
 
     @app.post("/api/books/{book_id}/data-clean/run")
     def run_data_clean(book_id: int, body: DataCleanRunRequest | None = None) -> dict[str, Any]:

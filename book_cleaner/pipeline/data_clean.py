@@ -24,7 +24,7 @@ _BATCH_ID_RE = re.compile(
     re.IGNORECASE,
 )
 _NUMERIC_UNIT_RE = re.compile(
-    r"^\s*([+-]?\d+(?:\.\d+)?)\s*(?:℃|°C|°F|%|MPa|kPa|Pa|L/h|mL/min|mL|kg/h|kg|g/L|mg/L|g|mg|rpm|r/min|hr|h|min|s|px|mm|cm|pH|mV)?\s*$",
+    r"^\s*([+-]?\d+(?:\.\d+)?)\s*(?:℃|°C|°F|%|MPa|kPa|Pa|mbar|bar|m³/h|m3/h|L/min|L/h|L|mL/min|mL|kg/h|kg|g/mL|mg/mL|μg/mL|ug/mL|IU/mL|U/mL|U/L|mmol/L|mol/L|g/L|mg/L|g|mg|t|吨|rpm|r/min|小时|分钟|天|hr|h|min|s|px|mm|cm|pH|mV)?\s*$",
     re.IGNORECASE,
 )
 

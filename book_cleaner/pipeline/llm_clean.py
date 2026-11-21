@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import json
 import re
 import time
 from dataclasses import dataclass
@@ -73,7 +74,7 @@ def should_run_llm(cfg: LLMConfig, ocr_confidence: float, text: str) -> bool:
 
 def _strip_code_fence(content: str) -> str:
     stripped = content.strip()
-    m = re.match(r"^```(?:markdown|md|text)?\s*\n(.*?)\n```$", stripped, flags=re.DOTALL)
+    m = re.match(r"^```(?:json|markdown|md|text)?\s*\n(.*?)\n```$", stripped, flags=re.DOTALL)
     if m:
         return m.group(1).strip()
     return stripped
@@ -162,3 +163,133 @@ def test_llm_connection(cfg: LLMConfig, client: httpx.Client | None = None) -> d
             "model": cfg.model,
             "latency_ms": latency_ms,
         }
+
+
+def extract_sheet_rows_with_llm(
+    page_text: str,
+    sheet_def: dict[str, Any],
+    cfg: LLMConfig,
+    client: httpx.Client | None = None,
+) -> tuple[list[dict[str, Any]], dict[str, Any]]:
+    """Extract structured rows matching a target template Sheet via an OpenAI-compatible LLM."""
+    if not cfg.base_url or not cfg.api_key:
+        raise ValueError("LLM base_url and api_key are required")
+    fields = list(sheet_def.get("fields") or [])
+    if not fields:
+        raise ValueError("目标子表尚未配置任何字段，无法抽取")
+
+    sheet_name = str(sheet_def.get("name") or "目标子表")
+    sheet_mode = str(sheet_def.get("mode") or "record")
+    field_keys = [str(f.get("key") or f.get("name")) for f in fields]
+    field_specs = [
+        {
+            "key": str(f.get("key") or f.get("name")),
+            "label": str(f.get("name") or f.get("key")),
+            "role": str(f.get("role") or "num_feature"),
+            "aliases": list(f.get("aliases") or []),
+        }
+        for f in fields
+    ]
+
+    sys_prompt = (
+        "你是工业与科研纸质单据结构化抽取助手。"
+        "严格依据输入的 OCR 文本，仅抽取目标 Excel 子表要求的字段；"
+        "严禁编造原文中不存在的数值，缺失字段一律填 null，数值不要带单位后缀（如 32.5℃ 只写 32.5）。"
+        '仅输出严格合法的 JSON，格式为 {"rows": [{field_key: value_or_null, ...}]}。'
+    )
+    user_prompt = json.dumps(
+        {
+            "target_sheet": sheet_name,
+            "sheet_mode": sheet_mode,
+            "fields": field_specs,
+            "ocr_text": page_text[:6000],
+        },
+        ensure_ascii=False,
+    )
+
+    url = f"{cfg.base_url.rstrip('/')}/chat/completions"
+    payload = {
+        "model": cfg.model,
+        "temperature": 0.0,
+        "messages": [
+            {"role": "system", "content": sys_prompt},
+            {"role": "user", "content": user_prompt},
+        ],
+    }
+    headers = {
+        "Authorization": f"Bearer {cfg.api_key}",
+        "Content-Type": "application/json",
+    }
+
+    t0 = time.perf_counter()
+    if client is not None:
+        resp = client.post(url, json=payload, headers=headers, timeout=cfg.timeout_s)
+    else:
+        with httpx.Client(timeout=cfg.timeout_s) as own_client:
+            resp = own_client.post(url, json=payload, headers=headers)
+    elapsed_ms = int((time.perf_counter() - t0) * 1000)
+
+    resp.raise_for_status()
+    body = resp.json()
+    choices = body.get("choices") or []
+    if not choices:
+        raise RuntimeError("LLM response contained no choices")
+    raw_content = str(choices[0].get("message", {}).get("content", "")).strip()
+    cleaned = _strip_code_fence(raw_content)
+
+    # Extract JSON object or array safely even if wrapped in prose
+    try:
+        parsed = json.loads(cleaned)
+    except json.JSONDecodeError:
+        m_obj = re.search(r"(\{.*\}|\[.*\])", cleaned, flags=re.DOTALL)
+        if not m_obj:
+            raise RuntimeError(f"LLM 未返回合法 JSON：{cleaned[:160]}")
+        parsed = json.loads(m_obj.group(1))
+
+    if isinstance(parsed, dict):
+        raw_rows = parsed.get("rows")
+        if raw_rows is None and any(k in parsed for k in field_keys):
+            raw_rows = [parsed]
+    elif isinstance(parsed, list):
+        raw_rows = parsed
+    else:
+        raw_rows = []
+
+    if not isinstance(raw_rows, list):
+        raw_rows = []
+
+    norm_rows: list[dict[str, Any]] = []
+    name_to_key = {str(f.get("name") or ""): str(f.get("key") or "") for f in fields}
+    for raw_r in raw_rows:
+        if not isinstance(raw_r, dict):
+            continue
+        out_r: dict[str, Any] = {}
+        has_any = False
+        for k in field_keys:
+            val = raw_r.get(k)
+            if val is None:
+                # Fallback if model returned field label instead of key
+                label = next((str(f.get("name") or "") for f in fields if f.get("key") == k), "")
+                if label and label in raw_r:
+                    val = raw_r.get(label)
+            if isinstance(val, str):
+                val = val.strip() or None
+            if val is not None:
+                has_any = True
+            out_r[k] = val
+        # Also catch keys written by label
+        for raw_k, raw_v in raw_r.items():
+            mapped_k = name_to_key.get(str(raw_k).strip())
+            if mapped_k and out_r.get(mapped_k) is None and raw_v is not None:
+                v_clean = raw_v.strip() if isinstance(raw_v, str) else raw_v
+                if v_clean not in ("", None):
+                    out_r[mapped_k] = v_clean
+                    has_any = True
+        if has_any:
+            norm_rows.append(out_r)
+
+    return norm_rows, {
+        "model": body.get("model", cfg.model),
+        "usage": body.get("usage", {}),
+        "latency_ms": elapsed_ms,
+    }

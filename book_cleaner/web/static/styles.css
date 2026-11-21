@@ -2162,6 +2162,423 @@ textarea {
   border-radius: 14px;
 }
 
+/* ================= MULTI-SHEET TEMPLATE PACK WORKBENCH ================= */
+.pack-shell {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  background: var(--bg);
+}
+
+.pack-topbar {
+  flex: none;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  flex-wrap: wrap;
+  padding: 10px 18px;
+  background: var(--surface);
+  border-bottom: 1px solid var(--border);
+}
+
+.pack-bar-label {
+  font-size: 12.5px;
+  font-weight: 600;
+  color: var(--muted);
+}
+
+.pack-workbench {
+  flex: 1;
+  min-height: 0;
+  display: grid;
+  grid-template-columns: 236px 296px minmax(0, 1fr);
+  overflow: hidden;
+}
+
+.pack-col {
+  min-width: 0;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+
+.pack-drawer-col {
+  background: var(--surface-rail);
+  border-right: 1px solid var(--border);
+}
+
+.pack-pages-col {
+  background: var(--surface);
+  border-right: 1px solid var(--border);
+}
+
+.pack-detail-col {
+  background: var(--bg);
+}
+
+.pack-col-head {
+  flex: none;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  padding: 12px 14px;
+  border-bottom: 1px solid var(--border);
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--text);
+}
+
+.pack-sheet-list {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  padding: 10px;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.pack-drawer-sep {
+  height: 1px;
+  background: var(--border);
+  margin: 6px 4px;
+}
+
+.pack-sheet-item {
+  width: 100%;
+  text-align: left;
+  border: 1px solid var(--border);
+  background: var(--surface);
+  color: var(--text);
+  border-radius: 11px;
+  padding: 10px 12px;
+  cursor: pointer;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  transition: background-color 130ms ease, border-color 130ms ease, transform 100ms ease;
+}
+
+.pack-sheet-item:hover {
+  border-color: var(--border-strong);
+  background: var(--surface-subtle);
+}
+
+.pack-sheet-item.is-active {
+  border-color: var(--primary);
+  box-shadow: 0 0 0 1px var(--primary);
+  background: var(--surface);
+}
+
+.pack-sheet-item.is-warn-drawer {
+  border-style: dashed;
+}
+
+.pack-sheet-row1 {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+.pack-sheet-title {
+  font-size: 13.5px;
+  font-weight: 600;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.pack-sheet-count {
+  font-size: 12px;
+  font-weight: 600;
+  padding: 2px 7px;
+  border-radius: 999px;
+  background: var(--surface-subtle);
+  color: var(--muted);
+  font-variant-numeric: tabular-nums;
+  flex: none;
+}
+
+.pack-sheet-item.is-active .pack-sheet-count {
+  background: var(--primary);
+  color: var(--primary-text);
+}
+
+.pack-sheet-badges {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex-wrap: wrap;
+}
+
+.badge-mode {
+  font-size: 11.5px;
+  padding: 1px 6px;
+  border-radius: 6px;
+  background: var(--surface-subtle);
+  color: var(--muted);
+}
+
+.badge-y {
+  font-size: 11.5px;
+  font-weight: 600;
+  padding: 1px 7px;
+  border-radius: 6px;
+  background: var(--ok-tint);
+  color: var(--ok);
+}
+
+.pack-page-list {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  padding: 10px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.pack-page-card {
+  border: 1px solid var(--border);
+  border-radius: 11px;
+  padding: 10px;
+  background: var(--surface);
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  transition: border-color 130ms ease;
+}
+
+.pack-page-card:hover {
+  border-color: var(--border-strong);
+}
+
+.pack-page-top {
+  display: flex;
+  gap: 10px;
+  align-items: flex-start;
+  min-width: 0;
+}
+
+.pack-page-thumb {
+  width: 42px;
+  height: 54px;
+  object-fit: cover;
+  border-radius: 6px;
+  border: 1px solid var(--border);
+  background: var(--canvas);
+  flex: none;
+}
+
+.pack-page-info {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+}
+
+.pack-page-title {
+  font-size: 12.5px;
+  font-weight: 600;
+  color: var(--text);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.pack-page-sub {
+  font-size: 11.5px;
+  color: var(--muted);
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex-wrap: wrap;
+}
+
+.pack-page-controls {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.pack-page-controls select {
+  flex: 1;
+  min-width: 0;
+  font-size: 12px;
+  padding: 4px 8px;
+  border-radius: 7px;
+  border: 1px solid var(--border-strong);
+  background: var(--surface);
+  color: var(--text);
+}
+
+.pack-detail-head {
+  flex: none;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  flex-wrap: wrap;
+  padding: 10px 18px;
+  background: var(--surface);
+  border-bottom: 1px solid var(--border);
+}
+
+.segmented-bar {
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+  padding: 3px;
+  border-radius: 10px;
+  background: var(--surface-subtle);
+  border: 1px solid var(--border);
+}
+
+.seg-btn {
+  border: none;
+  background: transparent;
+  color: var(--muted);
+  font-size: 12.5px;
+  font-weight: 500;
+  padding: 5px 12px;
+  border-radius: 7px;
+  cursor: pointer;
+  white-space: nowrap;
+  transition: background-color 140ms ease, color 140ms ease;
+}
+
+.seg-btn:hover {
+  color: var(--text);
+}
+
+.seg-btn.is-active {
+  background: var(--surface);
+  color: var(--text);
+  font-weight: 600;
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.08);
+}
+
+.pack-subpane {
+  flex: 1;
+  min-height: 0;
+  overflow: auto;
+  padding: 16px 20px;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.pack-map-wrap {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 14px;
+  overflow: hidden;
+}
+
+.pack-map-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 13px;
+}
+
+.pack-map-table th {
+  text-align: left;
+  padding: 10px 12px;
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--muted);
+  background: var(--surface-subtle);
+  border-bottom: 1px solid var(--border);
+}
+
+.pack-map-table td {
+  padding: 10px 12px;
+  border-bottom: 1px solid var(--border);
+  vertical-align: middle;
+}
+
+.pack-map-table tr:last-child td {
+  border-bottom: none;
+}
+
+.pack-map-arrow {
+  text-align: center;
+  color: var(--muted);
+  font-weight: 600;
+  width: 34px;
+}
+
+.pack-target-y-th {
+  background: var(--ok-tint) !important;
+  color: var(--ok) !important;
+}
+
+.pack-schema-card {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 14px;
+  padding: 16px 18px;
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+}
+
+.pack-schema-meta-grid {
+  display: grid;
+  grid-template-columns: 1.1fr 1fr 1.4fr;
+  gap: 12px;
+}
+
+.pack-field-head,
+.pack-field-row {
+  display: grid;
+  grid-template-columns: 1.1fr 132px 1.2fr 36px;
+  gap: 8px;
+  align-items: center;
+}
+
+.pack-field-head {
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--muted);
+  padding: 0 2px;
+}
+
+.pack-field-list {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.pack-empty-state {
+  background: var(--surface);
+  border: 1px dashed var(--border-strong);
+  border-radius: 14px;
+  padding: 28px 20px;
+  text-align: center;
+  color: var(--muted);
+  font-size: 13px;
+  line-height: 1.6;
+}
+
+.export-coverage-banner {
+  margin-top: 8px;
+  padding: 10px 12px;
+  border-radius: 10px;
+  background: var(--surface-subtle);
+  border: 1px solid var(--border);
+  font-size: 12.5px;
+  color: var(--text);
+  line-height: 1.5;
+}
+
 /* ================= TAB 5: ASYMMETRIC EXPORT CENTER ================= */
 .export-hero-grid {
   display: grid;
@@ -2697,6 +3114,9 @@ dialog::backdrop {
   .dataclean-workstation {
     grid-template-columns: 350px minmax(0, 1fr);
   }
+  .pack-workbench {
+    grid-template-columns: 204px 256px minmax(0, 1fr);
+  }
 }
 
 @media (max-width: 900px) {
@@ -2730,6 +3150,8 @@ dialog::backdrop {
   .capture-workstation,
   .review-layout,
   .dataclean-workstation,
+  .pack-workbench,
+  .pack-schema-meta-grid,
   .export-hero-grid,
   .usb-bridge-grid {
     grid-template-columns: 1fr;
@@ -2737,7 +3159,9 @@ dialog::backdrop {
   }
   .capture-inspector,
   .review-inspector,
-  .dataclean-inspector {
+  .dataclean-inspector,
+  .pack-drawer-col,
+  .pack-pages-col {
     border-left: none;
     border-right: none;
     border-top: 1px solid var(--border);
