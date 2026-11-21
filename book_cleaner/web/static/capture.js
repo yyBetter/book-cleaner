@@ -83,6 +83,21 @@ export function createCaptureController(state, callbacks) {
     };
   }
 
+  function syncEnhanceSwatches(mode) {
+    document.querySelectorAll("[data-enhance-swatch]").forEach((btn) => {
+      const active = btn.dataset.enhanceSwatch === mode;
+      btn.classList.toggle("is-active", active);
+      btn.setAttribute("aria-pressed", String(active));
+    });
+  }
+
+  document.querySelectorAll("[data-enhance-swatch]").forEach((btn) => {
+    btn.addEventListener("click", () => {
+      profileEls.enhance_mode.value = btn.dataset.enhanceSwatch;
+      syncEnhanceSwatches(profileEls.enhance_mode.value);
+    });
+  });
+
   function applyBookProfile(profile = {}) {
     profileEls.split_spread.checked = Boolean(profile.split_spread);
     profileEls.auto_crop.checked = profile.auto_crop !== false;
@@ -91,6 +106,7 @@ export function createCaptureController(state, callbacks) {
     profileEls.deskew.checked = profile.deskew !== false;
     profileEls.denoise.checked = profile.denoise !== false;
     profileEls.enhance_mode.value = profile.enhance_mode || "clean_color";
+    syncEnhanceSwatches(profileEls.enhance_mode.value);
   }
 
   function triggerFlashOverlay(id) {
@@ -108,6 +124,7 @@ export function createCaptureController(state, callbacks) {
     const blurEl = document.getElementById("qaValBlur");
     const brightEl = document.getElementById("qaValBright");
     const dupEl = document.getElementById("qaValDup");
+    const blurBar = document.getElementById("qaBlurBar");
     if (!qa || qa.blur_score === undefined) return;
     const flags = qa.flags || [];
     const ok = flags.length === 0;
@@ -122,6 +139,10 @@ export function createCaptureController(state, callbacks) {
     if (dupEl) {
       dupEl.textContent = qa.is_duplicate ? "重复" : "唯一";
       dupEl.style.color = qa.is_duplicate ? "var(--warn)" : "var(--ok)";
+    }
+    if (blurBar) {
+      blurBar.style.width = `${Math.max(8, Math.min(100, Math.round((Number(qa.blur_score || 0) / 400) * 100)))}%`;
+      blurBar.style.background = ok ? "var(--ok)" : "var(--warn)";
     }
     lastHud.textContent = `最近质检：${label}`;
 

@@ -26,11 +26,18 @@ const pipelinePillText = document.getElementById("pipelinePillText");
 const activeOcrPill = document.getElementById("activeOcrPill");
 const newBookDialog = document.getElementById("newBookDialog");
 const settingsDialog = document.getElementById("settingsDialog");
+const shortcutsDialog = document.getElementById("shortcutsDialog");
 const tabBtns = Array.from(document.querySelectorAll(".tab-btn"));
 
-initThemeToggle(document.getElementById("themeToggleBtn"));
+initThemeToggle(document.getElementById("themeToggleBtn"), { compact: true });
 enableDialogLightDismissFallback(newBookDialog);
 enableDialogLightDismissFallback(settingsDialog);
+enableDialogLightDismissFallback(shortcutsDialog);
+
+const openShortcutsBtn = document.getElementById("openShortcutsBtn");
+if (openShortcutsBtn && shortcutsDialog) {
+  openShortcutsBtn.addEventListener("click", () => shortcutsDialog.showModal());
+}
 
 document.querySelectorAll("[data-close-dialog]").forEach((btn) => {
   btn.addEventListener("click", () => {
@@ -109,8 +116,8 @@ tabBtns.forEach((b, idx) => {
   b.addEventListener("click", () => switchTab(b.dataset.tab));
   b.addEventListener("keydown", (e) => {
     let nextIdx = null;
-    if (e.key === "ArrowRight") nextIdx = (idx + 1) % tabBtns.length;
-    else if (e.key === "ArrowLeft") nextIdx = (idx - 1 + tabBtns.length) % tabBtns.length;
+    if (e.key === "ArrowRight" || e.key === "ArrowDown") nextIdx = (idx + 1) % tabBtns.length;
+    else if (e.key === "ArrowLeft" || e.key === "ArrowUp") nextIdx = (idx - 1 + tabBtns.length) % tabBtns.length;
     else if (e.key === "Home") nextIdx = 0;
     else if (e.key === "End") nextIdx = tabBtns.length - 1;
     if (nextIdx !== null) {
@@ -153,6 +160,9 @@ async function refreshStats() {
 
   const b = stats.book || { total: 0, pending_clean: 0, pending_ocr: 0 };
   updateTabBadges(b);
+  if (seedDemoBtn) {
+    seedDemoBtn.classList.toggle("btn-primary", (b.total || 0) === 0);
+  }
   if (stats.paused) {
     pipelinePill.className = "pill pill-warn";
     pipelinePillText.textContent = "流水线已暂停";
@@ -446,6 +456,15 @@ document.addEventListener("keydown", (e) => {
 
   const tag = (e.target && e.target.tagName) || "";
   if (tag === "INPUT" || tag === "TEXTAREA" || tag === "SELECT" || newBookDialog.open || settingsDialog.open) {
+    return;
+  }
+  if (e.key === "?" && shortcutsDialog) {
+    e.preventDefault();
+    if (shortcutsDialog.open) closeTopLayer(shortcutsDialog);
+    else shortcutsDialog.showModal();
+    return;
+  }
+  if (shortcutsDialog && shortcutsDialog.open) {
     return;
   }
   if (state.activeTab === "capture") {

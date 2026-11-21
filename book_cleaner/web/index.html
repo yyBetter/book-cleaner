@@ -1,624 +1,683 @@
 <!DOCTYPE html>
-<html lang="zh-CN">
+<html lang="zh-CN" data-theme="dark">
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <meta name="color-scheme" content="light dark">
-  <title>超级扫描仪 · 智能纸质书籍采集与清洗工作台</title>
+  <meta name="color-scheme" content="dark light">
+  <title>超级扫描仪 · 智能纸质书籍光学采集与清洗工作台</title>
   <link rel="stylesheet" href="/static/styles.css">
 </head>
 <body>
-  <header class="topbar">
-    <div class="topbar-left">
-      <div class="brand-group">
-        <div class="brand-badge" aria-hidden="true">
-          <svg class="icon" viewBox="0 0 24 24"><path d="M3 7V5a2 2 0 0 1 2-2h2"/><path d="M17 3h2a2 2 0 0 1 2 2v2"/><path d="M21 17v2a2 2 0 0 1-2 2h-2"/><path d="M7 21H5a2 2 0 0 1-2-2v-2"/><path d="M7 12h10"/><circle cx="12" cy="12" r="2.5"/></svg>
-        </div>
-        <div>
-          <h1 class="brand-title">超级扫描仪</h1>
-          <div class="brand-sub">SUPER SCANNER · 十万页级光学采集与清洗工作台</div>
-        </div>
-      </div>
-
-      <div class="book-switcher-group">
-        <select id="bookSelect" class="book-select" aria-label="选择当前书目"></select>
-        <button id="newBookBtn" type="button" class="btn btn-sm">+ 新建书目</button>
-      </div>
-    </div>
-
-    <div class="topbar-controls">
-      <button id="seedDemoBtn" type="button" class="btn btn-sm">导入演示样书 (7页)</button>
-      <span id="pipelinePill" class="pill pill-ok"><span class="dot"></span><span id="pipelinePillText">流水线运行中</span></span>
-      <span id="activeOcrPill" class="pill" title="当前生效的 OCR 识别引擎">RapidOCR</span>
-      <button id="themeToggleBtn" type="button" class="btn btn-sm" aria-label="切换浅色/深色外观" title="切换界面明暗主题">外观：跟随系统</button>
-      <button id="openSettingsBtn" type="button" class="btn btn-sm">
-        <svg class="icon icon-sm" viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 1 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 1 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 1 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 1 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1Z"/></svg>
-        <span>OCR 与设置</span>
-      </button>
-    </div>
-  </header>
-
-  <nav class="nav-tabs" role="tablist" aria-label="工作台视图">
-    <button id="tabBtn-capture" class="tab-btn is-active" data-tab="capture" type="button" role="tab" aria-selected="true" tabindex="0">
-      <span>1. 采集工位</span>
-      <span id="tabBadgeCapture" class="badge-count">0</span>
-    </button>
-    <button id="tabBtn-pipeline" class="tab-btn" data-tab="pipeline" type="button" role="tab" aria-selected="false" tabindex="-1">
-      <span>2. 流水线大盘</span>
-      <span id="tabBadgePipeline" class="badge-count hidden">0</span>
-    </button>
-    <button id="tabBtn-review" class="tab-btn" data-tab="review" type="button" role="tab" aria-selected="false" tabindex="-1">
-      <span>3. 对比与抽检复核</span>
-      <span id="tabBadgeReview" class="badge-count hidden">0</span>
-    </button>
-    <button id="tabBtn-dataclean" class="tab-btn" data-tab="dataclean" type="button" role="tab" aria-selected="false" tabindex="-1">
-      <span>4. 数据清洗与表头映射</span>
-      <span id="tabBadgeDataclean" class="badge-count hidden">0</span>
-    </button>
-    <button id="tabBtn-export" class="tab-btn" data-tab="export" type="button" role="tab" aria-selected="false" tabindex="-1">
-      <span>5. 导出中心</span>
-    </button>
-  </nav>
-
-  <main class="main-wrap">
-    <!-- TAB 1: CAPTURE -->
-    <section id="tab-capture" class="tab-panel is-active" role="tabpanel" aria-labelledby="tabBtn-capture">
-      <div class="capture-grid">
-        <div class="card">
-          <div class="source-switcher">
-            <button class="source-btn is-active" data-source="backend_cam" type="button">
-              <svg class="icon icon-sm" viewBox="0 0 24 24" aria-hidden="true"><path d="M14.5 4h-5L7 7H4a2 2 0 0 0-2 2v9a2 2 0 0 0 2 2h16a2 2 0 0 0 2-2V9a2 2 0 0 0-2-2h-3l-2.5-3z"/><circle cx="12" cy="13" r="3"/></svg>
-              <span>高拍仪 / 外接摄像头</span>
-            </button>
-            <button class="source-btn" data-source="browser_cam" type="button">
-              <svg class="icon icon-sm" viewBox="0 0 24 24" aria-hidden="true"><rect x="2" y="3" width="20" height="14" rx="2"/><path d="M8 21h8"/><path d="M12 17v4"/></svg>
-              <span>浏览器实时摄像头</span>
-            </button>
-            <button class="source-btn" data-source="mobile_qr" type="button">
-              <svg class="icon icon-sm" viewBox="0 0 24 24" aria-hidden="true"><rect x="7" y="2" width="10" height="20" rx="2"/><path d="M12 18h.01"/></svg>
-              <span>Android 手机无线 / USB 连拍</span>
-            </button>
-            <button class="source-btn" data-source="folder_import" type="button">
-              <svg class="icon icon-sm" viewBox="0 0 24 24" aria-hidden="true"><path d="M4 20h16a2 2 0 0 0 2-2V8a2 2 0 0 0-2-2h-7.93a2 2 0 0 1-1.66-.9l-.82-1.2A2 2 0 0 0 7.93 3H4a2 2 0 0 0-2 2v13c0 1.1.9 2 2 2Z"/></svg>
-              <span>批量导入本地目录 / PDF</span>
-            </button>
+  <div class="app-shell">
+    <!-- TOP 52px INSTRUMENT HEADER -->
+    <header class="topbar">
+      <div class="topbar-left">
+        <div class="brand-group">
+          <div class="brand-badge" aria-hidden="true">
+            <svg class="icon" viewBox="0 0 24 24"><path d="M3 7V5a2 2 0 0 1 2-2h2"/><path d="M17 3h2a2 2 0 0 1 2 2v2"/><path d="M21 17v2a2 2 0 0 1-2 2h-2"/><path d="M7 21H5a2 2 0 0 1-2-2v-2"/><path d="M7 12h10"/><circle cx="12" cy="12" r="2.5"/></svg>
           </div>
-
-          <!-- Source A: Backend OpenCV Camera -->
-          <div id="src-backend_cam">
-            <div class="toolbar-row" style="margin-bottom:10px;">
-              <button id="scanBackendCamsBtn" type="button" class="btn btn-sm">扫描本地摄像头</button>
-              <select id="backendCamSelect" class="book-select" style="min-width:165px;"></select>
-              <button id="openBackendCamBtn" type="button" class="btn btn-sm btn-primary">开启预览</button>
-              <button id="closeBackendCamBtn" type="button" class="btn btn-sm">关闭摄像头</button>
-              <label class="toggle-item toggle-compact">
-                <input id="backendAutoTriggerChk" type="checkbox">
-                <span>翻页静止自动抓拍</span>
-              </label>
-              <label class="toggle-item toggle-compact">
-                <input id="backendHandsOnChk" type="checkbox" checked>
-                <span>压书手辅助（忽略左右白边）</span>
-              </label>
-            </div>
-            <div id="captureDropZone" class="viewport-box">
-              <img id="backendCamFeed" class="preview-feed hidden" src="data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7" alt="电脑摄像头实时画面">
-              <div id="backendCamPlaceholder" class="viewport-empty">
-                <div class="viewport-empty-title">高拍仪 / 外接摄像头待机中</div>
-                <div class="viewport-empty-desc">
-                  支持 Windows DirectShow 高速高拍仪与 USB 摄像头。开启「压书手辅助」后，双手可一直压住左右蓝区翻拍，无需脚踏开关；也可直接把书页图片拖拽到此窗口上传。
-                </div>
-              </div>
-              <div class="thumb-zone-left">压书区<br>自动擦除</div>
-              <div class="thumb-zone-right">压书区<br>自动擦除</div>
-              <div id="backendCenterGuide" class="center-clear-guide">
-                <span class="reticle-corner tl" aria-hidden="true"></span>
-                <span class="reticle-corner tr" aria-hidden="true"></span>
-                <span class="reticle-corner bl" aria-hidden="true"></span>
-                <span class="reticle-corner br" aria-hidden="true"></span>
-              </div>
-              <div id="backendShutterFlash" class="shutter-flash" aria-hidden="true"></div>
-              <div class="settle-meter"><div id="backendSettleFill" class="settle-meter-fill"></div></div>
-              <div class="hud-overlay">
-                <span id="backendCamHudLeft">状态：待机</span>
-                <span id="lastQaHud">最近质检：等待第一页</span>
-              </div>
-            </div>
-          </div>
-
-          <!-- Source B: Browser getUserMedia -->
-          <div id="src-browser_cam" class="hidden">
-            <div class="toolbar-row" style="margin-bottom:10px;">
-              <select id="browserCamSelect" class="book-select" style="min-width:190px;"></select>
-              <button id="startBrowserCamBtn" type="button" class="btn btn-sm btn-primary">启动浏览器取景</button>
-              <button id="stopBrowserCamBtn" type="button" class="btn btn-sm">停止</button>
-              <label class="toggle-item toggle-compact">
-                <input id="browserAutoTriggerChk" type="checkbox">
-                <span>翻页静止自动抓拍</span>
-              </label>
-              <label class="toggle-item toggle-compact">
-                <input id="browserHandsOnChk" type="checkbox" checked>
-                <span>压书手辅助</span>
-              </label>
-            </div>
-            <div class="viewport-box">
-              <video id="browserVideo" class="hidden" autoplay playsinline muted></video>
-              <div id="browserCamPlaceholder" class="viewport-empty">
-                <div class="viewport-empty-title">浏览器实时摄像头待机中</div>
-                <div class="viewport-empty-desc">
-                  支持 Windows 外接 USB 摄像头与 Mac 连续互通相机。点击「启动浏览器取景」授权后即可开启压书手自动抓拍与空格快门。
-                </div>
-              </div>
-              <div class="thumb-zone-left">压书区<br>自动擦除</div>
-              <div class="thumb-zone-right">压书区<br>自动擦除</div>
-              <div id="browserCenterGuide" class="center-clear-guide">
-                <span class="reticle-corner tl" aria-hidden="true"></span>
-                <span class="reticle-corner tr" aria-hidden="true"></span>
-                <span class="reticle-corner bl" aria-hidden="true"></span>
-                <span class="reticle-corner br" aria-hidden="true"></span>
-              </div>
-              <div id="browserShutterFlash" class="shutter-flash" aria-hidden="true"></div>
-              <div class="settle-meter"><div id="browserSettleFill" class="settle-meter-fill"></div></div>
-              <div class="hud-overlay">
-                <span id="browserMotionHud">翻页触发状态：待机</span>
-                <span id="browserResHud">分辨率：-</span>
-              </div>
-            </div>
-          </div>
-
-          <!-- Source C: Android USB Bridge + Wi-Fi LAN QR -->
-          <div id="src-mobile_qr" class="hidden">
-            <div class="viewport-box" style="align-items:stretch;">
-              <div class="usb-bridge-grid">
-                <div class="panel-dark-inset">
-                  <div class="toolbar-between" style="margin-bottom:8px;">
-                    <strong style="font-size:14.5px;">1. Android USB 数据线直连（推荐）</strong>
-                    <span class="pill pill-ok">免证书 · 4K 自动连拍</span>
-                  </div>
-                  <p style="font-size:12px;opacity:0.86;margin:0 0 10px;">
-                    插上 USB 线并打开手机「USB 调试」，走本地回环通道直传 Windows，Chrome 自动解锁 4K 实时取景与「压书手辅助自动抓拍」，零延迟且边拍边充电。
-                  </p>
-                  <div id="adbStatusBox" class="adb-status-box">正在检测 Android 设备...</div>
-                  <div class="toolbar-row">
-                    <button id="refreshAdbBtn" type="button" class="btn btn-sm">检测手机连接</button>
-                    <button id="adbReverseBtn" type="button" class="btn btn-sm btn-primary">一键打通 USB 通道并在手机打开</button>
-                  </div>
-                  <div id="mobileUsbUrlText" class="mono" style="font-size:12px;margin-top:8px;opacity:0.86;"></div>
-                </div>
-
-                <div class="qr-panel">
-                  <div class="toolbar-row" style="justify-content:center;">
-                    <strong style="font-size:14.5px;">2. Wi-Fi 局域网扫码连拍</strong>
-                    <span id="mobileHttpsBadge" class="pill">HTTP 模式</span>
-                  </div>
-                  <div class="qr-frame">
-                    <img id="mobileQrImg" src="/api/mobile/qr" alt="手机扫码配对二维码">
-                  </div>
-                  <div class="toolbar-row" style="justify-content:center;">
-                    <span id="mobileUrlText" class="mono" style="font-size:12.5px;">正在读取局域网地址...</span>
-                    <button id="copyMobileUrlBtn" type="button" class="btn btn-sm">复制链接</button>
-                  </div>
-                  <div id="mobileModeTip" style="font-size:12px;opacity:0.82;max-width:340px;">
-                    Windows 端运行 <code>start_windows_https.bat</code>（即 <code>--auto-https</code>）后，Wi-Fi 扫码同样可开启实时压书自动连拍。
-                  </div>
-                </div>
-              </div>
-            </div>
-          </div>
-
-          <!-- Source D: Bulk Folder / PDF Import -->
-          <div id="src-folder_import" class="hidden">
-            <div class="panel-inset">
-              <h2 class="card-title">十万页存量扫描件 / PDF 批量入库</h2>
-              <div class="field-row">
-                <label for="folderPathInput">本地图片或 PDF 目录绝对路径</label>
-                <input id="folderPathInput" class="input" type="text" placeholder="例如：D:\Scans\book_01 或 ~/Scans/book_01">
-              </div>
-              <label class="toggle-item" style="margin-bottom:12px;">
-                <input id="folderRecursiveChk" type="checkbox" checked>
-                <span>递归扫描子目录（支持 JPG / PNG / WebP / TIFF / BMP / PDF，自动 SHA-256 去重）</span>
-              </label>
-              <button id="startFolderImportBtn" type="button" class="btn btn-primary">启动后台批量导入任务</button>
-            </div>
-          </div>
-
-          <div class="shutter-bar">
-            <button id="captureShutterBtn" type="button" class="btn btn-shutter shutter-main">
-              <svg class="icon" viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="9"/><circle cx="12" cy="12" r="4"/></svg>
-              <span>拍照入库（脚踏板 / 空格）</span>
-              <kbd class="kbd">Space</kbd>
-            </button>
-            <label class="btn" style="cursor:pointer;">
-              <span>选择图片上传</span>
-              <input id="manualUploadInput" type="file" accept="image/*" multiple class="hidden">
-            </label>
-            <button id="undoLastCaptureBtn" type="button" class="btn btn-warn">
-              <span>撤销重拍</span>
-              <kbd class="kbd">Backspace</kbd>
-            </button>
-          </div>
-
-          <div style="margin-top:14px;">
-            <div class="toolbar-between">
-              <strong style="font-size:13px;">最近入库缩略图（拍完即落盘，后台自动清洗识别）</strong>
-              <label style="font-size:12px;display:flex;align-items:center;gap:6px;cursor:pointer;">
-                <input id="beepToggleChk" type="checkbox" checked>
-                <span>开启快门与模糊告警提示音</span>
-              </label>
-            </div>
-            <div id="recentCaptureStrip" class="recent-strip scroller"></div>
-          </div>
-        </div>
-
-        <aside class="card stack-sm">
-          <h2 class="card-title" style="margin-bottom:2px;">采集预设与实时质检单</h2>
-          <div class="preset-grid" style="margin-bottom:2px;">
-            <label class="toggle-item"><input id="optSplitSpread" type="checkbox"><span>双页自动拆单页</span></label>
-            <label class="toggle-item"><input id="optAutoCrop" type="checkbox" checked><span>智能切边矫正</span></label>
-            <label class="toggle-item"><input id="optDewarp" type="checkbox" checked><span>书页弯曲展平</span></label>
-            <label class="toggle-item"><input id="optRemoveFingers" type="checkbox" checked><span>边缘手指擦除</span></label>
-            <label class="toggle-item"><input id="optDeskew" type="checkbox" checked><span>微倾角度纠偏</span></label>
-            <label class="toggle-item"><input id="optDenoise" type="checkbox" checked><span>去噪保真滤波</span></label>
-          </div>
-
-          <div class="field-row">
-            <label for="optEnhanceMode">成片底色输出模式</label>
-            <select id="optEnhanceMode" class="input">
-              <option value="clean_color">洁净彩页漂白（保留插图印章）</option>
-              <option value="grayscale_crisp">高清锐利灰度（适合纯文印本）</option>
-              <option value="bw_sauvola">Sauvola 锐利黑白二值</option>
-            </select>
-          </div>
-
-          <button id="saveBookProfileBtn" type="button" class="btn btn-block">保存为本书默认清洗模板</button>
-
-          <div id="captureQaCard" class="panel-inset">
-            <div class="muted-note">最近一拍 L0 毫秒级质检结果</div>
-            <div id="captureQaSummary" class="qa-summary-title">尚无采集记录</div>
-            <div class="qa-telemetry-grid">
-              <div class="qa-tele-cell"><div class="qa-tele-label">清晰度</div><div id="qaValBlur" class="qa-tele-val">-</div></div>
-              <div class="qa-tele-cell"><div class="qa-tele-label">亮度</div><div id="qaValBright" class="qa-tele-val">-</div></div>
-              <div class="qa-tele-cell"><div class="qa-tele-label">重复校验</div><div id="qaValDup" class="qa-tele-val">-</div></div>
-            </div>
-            <div id="captureQaMetrics" class="qa-summary-metrics hidden">
-              清晰度：- · 亮度：- · 重复校验：-
-            </div>
-          </div>
-        </aside>
-      </div>
-    </section>
-
-    <!-- TAB 2: PIPELINE MONITOR -->
-    <section id="tab-pipeline" class="tab-panel" role="tabpanel" aria-labelledby="tabBtn-pipeline">
-      <div class="kpi-grid">
-        <div class="kpi-card"><div class="kpi-label">本书总页数</div><div id="kpiTotal" class="kpi-val">0</div></div>
-        <div class="kpi-card"><div class="kpi-label">已完成 / 已通过</div><div id="kpiCompleted" class="kpi-val kpi-val-ok">0</div></div>
-        <div class="kpi-card"><div class="kpi-label">待图像清洗</div><div id="kpiClean" class="kpi-val">0</div></div>
-        <div class="kpi-card"><div class="kpi-label">待离线 OCR</div><div id="kpiOcr" class="kpi-val">0</div></div>
-        <div class="kpi-card"><div class="kpi-label">需人工复核</div><div id="kpiReview" class="kpi-val kpi-val-warn">0</div></div>
-        <div class="kpi-card"><div class="kpi-label">失败待重试</div><div id="kpiFailed" class="kpi-val kpi-val-danger">0</div></div>
-      </div>
-
-      <div class="card" style="margin-bottom:16px;">
-        <div class="toolbar-between">
           <div>
-            <strong>流水线总进度条</strong>
-            <span id="globalProgressNote" class="muted-note" style="margin-left:8px;"></span>
-          </div>
-          <div class="toolbar-row">
-            <button id="pausePipelineBtn" type="button" class="btn btn-sm">暂停后台任务</button>
-            <button id="resumePipelineBtn" type="button" class="btn btn-sm btn-primary">恢复运行</button>
-            <button id="retryFailedBtn" type="button" class="btn btn-sm btn-warn">一键重试失败页</button>
+            <h1 class="brand-title">超级扫描仪</h1>
+            <div class="brand-sub">SUPER SCANNER · 光学工作台</div>
           </div>
         </div>
-        <div class="stacked-bar" aria-label="页面处理状态分布">
-          <div id="barDone" class="seg-done" style="width:0%"></div>
-          <div id="barProc" class="seg-proc" style="width:0%"></div>
-          <div id="barReview" class="seg-review" style="width:0%"></div>
-          <div id="barFailed" class="seg-fail" style="width:0%"></div>
-        </div>
-        <div class="legend-row">
-          <span class="legend-item"><span class="dot" style="color:var(--ok);"></span>已完成 / 已通过</span>
-          <span class="legend-item"><span class="dot" style="color:var(--accent);"></span>清洗 / OCR 排队中</span>
-          <span class="legend-item"><span class="dot" style="color:var(--warn);"></span>需人工复核</span>
-          <span class="legend-item"><span class="dot" style="color:var(--danger);"></span>处理失败</span>
+
+        <div class="book-switcher-group">
+          <select id="bookSelect" class="book-select" aria-label="选择当前书目"></select>
+          <button id="newBookBtn" type="button" class="btn btn-sm">+ 新建书目</button>
         </div>
       </div>
 
-      <div class="card">
-        <h2 class="card-title">批量导入与导出后台任务队列</h2>
-        <div class="table-wrap">
-          <table class="data-table">
-            <thead>
-              <tr>
-                <th>任务 ID</th>
-                <th>类型</th>
-                <th>状态</th>
-                <th>进度</th>
-                <th>结果 / 备注</th>
-                <th>操作</th>
-              </tr>
-            </thead>
-            <tbody id="jobsTableBody"></tbody>
-          </table>
-        </div>
+      <div class="topbar-controls">
+        <button id="seedDemoBtn" type="button" class="btn btn-sm">导入演示样书 (7页)</button>
+        <span id="pipelinePill" class="pill pill-ok"><span class="dot"></span><span id="pipelinePillText">就绪</span></span>
+        <span id="activeOcrPill" class="pill" title="当前生效的 OCR 识别引擎">RapidOCR 离线</span>
+        <button id="openSettingsBtn" type="button" class="btn btn-sm">
+          <svg class="icon icon-sm" viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 1 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 1 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 1 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 1 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1Z"/></svg>
+          <span>OCR 与设置</span>
+        </button>
       </div>
-    </section>
+    </header>
 
-    <!-- TAB 3: QA REVIEW & COMPARISON -->
-    <section id="tab-review" class="tab-panel" role="tabpanel" aria-labelledby="tabBtn-review">
-      <div class="review-toolbar card">
-        <div class="filter-pills">
-          <button class="btn btn-sm btn-primary is-active" data-filter="ALL" type="button">全部页面</button>
-          <button class="btn btn-sm" data-filter="NEEDS_REVIEW" type="button">需人工复核</button>
-          <button class="btn btn-sm" data-filter="READY" type="button">待终审</button>
-          <button class="btn btn-sm" data-filter="APPROVED" type="button">已通过</button>
-          <button class="btn btn-sm" data-filter="FAILED" type="button">异常失败</button>
-        </div>
-        <div class="toolbar-row">
-          <select id="reviewQaFilter" class="book-select" style="min-width:130px;">
-            <option value="ALL">全部质检标签</option>
-            <option value="ANY_QA">任意告警页</option>
-            <option value="BLURRY">仅模糊告警</option>
-            <option value="DUPLICATE">仅疑似重复</option>
-            <option value="LOW_CONF">仅 OCR 低置信</option>
-          </select>
-          <input id="reviewSearchInput" class="input" style="width:190px;" type="search" placeholder="搜索正文关键词...">
-          <button id="prevPageListBtn" type="button" class="btn btn-sm">上一组</button>
-          <span id="pageListPagerInfo" class="muted-note mono">0 / 0</span>
-          <button id="nextPageListBtn" type="button" class="btn btn-sm">下一组</button>
-        </div>
+    <!-- LEFT 72px STUDIO RAIL -->
+    <aside class="studio-rail">
+      <nav class="nav-tabs" role="tablist" aria-label="工作台视图" aria-orientation="vertical">
+        <button id="tabBtn-capture" class="tab-btn is-active" data-tab="capture" type="button" role="tab" aria-selected="true" tabindex="0">
+          <svg class="icon icon-lg" viewBox="0 0 24 24" aria-hidden="true"><path d="M14.5 4h-5L7 7H4a2 2 0 0 0-2 2v9a2 2 0 0 0 2 2h16a2 2 0 0 0 2-2V9a2 2 0 0 0-2-2h-3l-2.5-3z"/><circle cx="12" cy="13" r="3"/></svg>
+          <span class="tab-label">采集</span>
+          <span id="tabBadgeCapture" class="badge-count">0</span>
+        </button>
+        <button id="tabBtn-pipeline" class="tab-btn" data-tab="pipeline" type="button" role="tab" aria-selected="false" tabindex="-1">
+          <svg class="icon icon-lg" viewBox="0 0 24 24" aria-hidden="true"><path d="M3 12h4l3-7 4 14 3-7h4"/></svg>
+          <span class="tab-label">流水线</span>
+          <span id="tabBadgePipeline" class="badge-count hidden">0</span>
+        </button>
+        <button id="tabBtn-review" class="tab-btn" data-tab="review" type="button" role="tab" aria-selected="false" tabindex="-1">
+          <svg class="icon icon-lg" viewBox="0 0 24 24" aria-hidden="true"><rect x="3" y="4" width="18" height="16" rx="2"/><line x1="12" y1="4" x2="12" y2="20"/></svg>
+          <span class="tab-label">复核</span>
+          <span id="tabBadgeReview" class="badge-count hidden">0</span>
+        </button>
+        <button id="tabBtn-dataclean" class="tab-btn" data-tab="dataclean" type="button" role="tab" aria-selected="false" tabindex="-1">
+          <svg class="icon icon-lg" viewBox="0 0 24 24" aria-hidden="true"><rect x="3" y="3" width="18" height="18" rx="2"/><path d="M3 9h18"/><path d="M9 21V9"/></svg>
+          <span class="tab-label">清洗</span>
+          <span id="tabBadgeDataclean" class="badge-count hidden">0</span>
+        </button>
+        <button id="tabBtn-export" class="tab-btn" data-tab="export" type="button" role="tab" aria-selected="false" tabindex="-1">
+          <svg class="icon icon-lg" viewBox="0 0 24 24" aria-hidden="true"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
+          <span class="tab-label">导出</span>
+        </button>
+      </nav>
+
+      <div class="rail-footer">
+        <button id="themeToggleBtn" type="button" class="rail-action-btn" aria-label="切换暗房/日光主题" title="切换暗房或浅色模式">暗房</button>
+        <button id="openShortcutsBtn" type="button" class="rail-action-btn" aria-label="查看快捷键指南" title="快捷键帮助 (?)">快捷键</button>
       </div>
+    </aside>
 
-      <div class="review-layout">
-        <!-- Left: Paginated gallery with content-visibility: auto -->
-        <div class="card">
-          <div class="toolbar-between" style="margin-bottom:8px;">
-            <span class="muted-note">页面缩略图</span>
-            <span class="muted-note"><kbd class="kbd">J</kbd>/<kbd class="kbd">K</kbd> 切页 · <kbd class="kbd">A</kbd> 通过</span>
-          </div>
-          <div id="reviewGallery" class="review-gallery scroller"></div>
-        </div>
-
-        <!-- Center: Interactive Before/After Image Comparison Slider -->
-        <div class="card">
-          <div class="toolbar-between" style="margin-bottom:8px;">
-            <strong id="reviewImageTitle">未选择页面</strong>
-            <div class="toolbar-row">
-              <select id="recleanModeSelect" class="book-select" style="min-width:130px;padding:5px 8px;">
-                <option value="clean_color">洁净彩页</option>
-                <option value="grayscale_crisp">锐利灰度</option>
-                <option value="bw_sauvola">Sauvola 黑白</option>
-              </select>
-              <button id="recleanPageBtn" type="button" class="btn btn-sm">按所选模式重洗此页</button>
-              <button id="zoomToggleBtn" type="button" class="btn btn-sm">放大细节</button>
-            </div>
-          </div>
-
-          <div class="compare-stage scroller">
-            <div id="compareWrap" class="compare-wrap" title="直接在图像上左右拖动对比原图与清洗成片">
-              <img id="compareCleanImg" src="data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7" alt="清洗后成片">
-              <div id="compareRawLayer" class="compare-raw-layer" style="clip-path: inset(0 50% 0 0);">
-                <img id="compareRawImg" src="data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7" alt="原始翻拍图">
+    <!-- WORKSPACE MAIN AREA -->
+    <main class="main-wrap">
+      <!-- TAB 1: PRO CAPTURE WORKSTATION -->
+      <section id="tab-capture" class="tab-panel is-active" role="tabpanel" aria-labelledby="tabBtn-capture">
+        <div class="capture-workstation">
+          <!-- Left: Stage (Instrument Strip + Optical Viewfinder + Shutter Console + Filmstrip) -->
+          <div class="capture-stage">
+            <div class="instrument-bar">
+              <div class="source-switcher">
+                <button class="source-btn is-active" data-source="backend_cam" type="button">
+                  <svg class="icon icon-sm" viewBox="0 0 24 24" aria-hidden="true"><path d="M14.5 4h-5L7 7H4a2 2 0 0 0-2 2v9a2 2 0 0 0 2 2h16a2 2 0 0 0 2-2V9a2 2 0 0 0-2-2h-3l-2.5-3z"/><circle cx="12" cy="13" r="3"/></svg>
+                  <span>高拍仪 / USB</span>
+                </button>
+                <button class="source-btn" data-source="browser_cam" type="button">
+                  <svg class="icon icon-sm" viewBox="0 0 24 24" aria-hidden="true"><rect x="2" y="3" width="20" height="14" rx="2"/><path d="M8 21h8"/><path d="M12 17v4"/></svg>
+                  <span>浏览器直采</span>
+                </button>
+                <button class="source-btn" data-source="mobile_qr" type="button">
+                  <svg class="icon icon-sm" viewBox="0 0 24 24" aria-hidden="true"><rect x="7" y="2" width="10" height="20" rx="2"/><path d="M12 18h.01"/></svg>
+                  <span>Android 手机连拍</span>
+                </button>
+                <button class="source-btn" data-source="folder_import" type="button">
+                  <svg class="icon icon-sm" viewBox="0 0 24 24" aria-hidden="true"><path d="M4 20h16a2 2 0 0 0 2-2V8a2 2 0 0 0-2-2h-7.93a2 2 0 0 1-1.66-.9l-.82-1.2A2 2 0 0 0 7.93 3H4a2 2 0 0 0-2 2v13c0 1.1.9 2 2 2Z"/></svg>
+                  <span>批量目录 / PDF</span>
+                </button>
               </div>
-              <div id="compareDivider" class="compare-divider" style="left:50%;">
-                <div class="compare-handle" aria-hidden="true">
-                  <svg class="icon icon-sm" viewBox="0 0 24 24"><path d="m8 9-4 3 4 3"/><path d="m16 9 4 3-4 3"/></svg>
+              <span class="muted-note">拖拽图像至取景框亦可快速入库</span>
+            </div>
+
+            <div class="capture-viewport-wrap">
+              <!-- Source A: Backend OpenCV Camera -->
+              <div id="src-backend_cam" class="capture-source-pane">
+                <div class="toolbar-row">
+                  <button id="scanBackendCamsBtn" type="button" class="btn btn-sm">扫描设备</button>
+                  <select id="backendCamSelect" class="book-select" style="min-width:160px;"></select>
+                  <button id="openBackendCamBtn" type="button" class="btn btn-sm btn-primary">开启取景</button>
+                  <button id="closeBackendCamBtn" type="button" class="btn btn-sm">关闭</button>
+                  <label class="toggle-item toggle-compact">
+                    <input id="backendAutoTriggerChk" class="toggle-switch" type="checkbox">
+                    <span>翻页静止自动抓拍</span>
+                  </label>
+                  <label class="toggle-item toggle-compact">
+                    <input id="backendHandsOnChk" class="toggle-switch" type="checkbox" checked>
+                    <span>压书手辅助</span>
+                  </label>
+                </div>
+
+                <div id="captureDropZone" class="viewport-box">
+                  <img id="backendCamFeed" class="preview-feed hidden" src="data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7" alt="电脑摄像头实时画面">
+                  <div class="optical-ruler-top" aria-hidden="true"></div>
+                  <div class="optical-ruler-left" aria-hidden="true"></div>
+                  <div id="backendCamPlaceholder" class="viewport-empty">
+                    <svg class="viewport-calib-svg" viewBox="0 0 80 56" aria-hidden="true">
+                      <rect x="4" y="4" width="72" height="48" rx="4" stroke-dasharray="4 3"/>
+                      <line x1="40" y1="6" x2="40" y2="50" stroke-dasharray="2 3"/>
+                      <circle cx="40" cy="28" r="10"/>
+                      <line x1="25" y1="28" x2="55" y2="28"/>
+                    </svg>
+                    <div class="viewport-empty-title">高拍仪 / 外接摄像头光学待机</div>
+                    <div class="viewport-empty-desc">
+                      支持 Windows DirectShow 高拍仪与 USB 相机；开启「压书手辅助」后双手可全程压住左右蓝区翻拍，或直接拖拽图片到此窗口上传。
+                    </div>
+                  </div>
+                  <div class="thumb-zone-left">压书区<br>自动擦除</div>
+                  <div class="thumb-zone-right">压书区<br>自动擦除</div>
+                  <div id="backendCenterGuide" class="center-clear-guide">
+                    <span class="reticle-corner tl" aria-hidden="true"></span>
+                    <span class="reticle-corner tr" aria-hidden="true"></span>
+                    <span class="reticle-corner bl" aria-hidden="true"></span>
+                    <span class="reticle-corner br" aria-hidden="true"></span>
+                  </div>
+                  <div id="backendShutterFlash" class="shutter-flash" aria-hidden="true"></div>
+                  <div class="settle-meter"><div id="backendSettleFill" class="settle-meter-fill"></div></div>
+                  <div class="hud-overlay">
+                    <span id="backendCamHudLeft">状态：待机</span>
+                    <span id="lastQaHud">最近质检：等待第一页</span>
+                  </div>
                 </div>
               </div>
-              <span class="compare-label left">原图 (Raw)</span>
-              <span class="compare-label right">清洗成片 (Clean)</span>
+
+              <!-- Source B: Browser getUserMedia -->
+              <div id="src-browser_cam" class="capture-source-pane hidden">
+                <div class="toolbar-row">
+                  <select id="browserCamSelect" class="book-select" style="min-width:190px;"></select>
+                  <button id="startBrowserCamBtn" type="button" class="btn btn-sm btn-primary">启动浏览器取景</button>
+                  <button id="stopBrowserCamBtn" type="button" class="btn btn-sm">停止</button>
+                  <label class="toggle-item toggle-compact">
+                    <input id="browserAutoTriggerChk" class="toggle-switch" type="checkbox">
+                    <span>翻页静止自动抓拍</span>
+                  </label>
+                  <label class="toggle-item toggle-compact">
+                    <input id="browserHandsOnChk" class="toggle-switch" type="checkbox" checked>
+                    <span>压书手辅助</span>
+                  </label>
+                </div>
+                <div class="viewport-box">
+                  <video id="browserVideo" class="hidden" autoplay playsinline muted></video>
+                  <div class="optical-ruler-top" aria-hidden="true"></div>
+                  <div class="optical-ruler-left" aria-hidden="true"></div>
+                  <div id="browserCamPlaceholder" class="viewport-empty">
+                    <div class="viewport-empty-title">浏览器实时取景器待机</div>
+                    <div class="viewport-empty-desc">
+                      支持 Windows USB 摄像头与 Mac 连续互通相机，授权后可开启压书手自动连拍与空格快门。
+                    </div>
+                  </div>
+                  <div class="thumb-zone-left">压书区<br>自动擦除</div>
+                  <div class="thumb-zone-right">压书区<br>自动擦除</div>
+                  <div id="browserCenterGuide" class="center-clear-guide">
+                    <span class="reticle-corner tl" aria-hidden="true"></span>
+                    <span class="reticle-corner tr" aria-hidden="true"></span>
+                    <span class="reticle-corner bl" aria-hidden="true"></span>
+                    <span class="reticle-corner br" aria-hidden="true"></span>
+                  </div>
+                  <div id="browserShutterFlash" class="shutter-flash" aria-hidden="true"></div>
+                  <div class="settle-meter"><div id="browserSettleFill" class="settle-meter-fill"></div></div>
+                  <div class="hud-overlay">
+                    <span id="browserMotionHud">翻页触发状态：待机</span>
+                    <span id="browserResHud">分辨率：-</span>
+                  </div>
+                </div>
+              </div>
+
+              <!-- Source C: Android USB Bridge + Wi-Fi LAN QR -->
+              <div id="src-mobile_qr" class="capture-source-pane hidden">
+                <div class="viewport-box" style="align-items:stretch;">
+                  <div class="usb-bridge-grid">
+                    <div class="panel-dark-inset">
+                      <div class="toolbar-between" style="margin-bottom:8px;">
+                        <strong style="font-size:14px;">1. Android USB 数据线直连（推荐）</strong>
+                        <span class="pill pill-ok">免证书 · 4K 连拍</span>
+                      </div>
+                      <p style="font-size:12px;opacity:0.86;margin:0 0 10px;">
+                        插上 USB 线并打开手机「USB 调试」，走本地回环通道直传电脑，Chrome 自动解锁 4K 实时取景与压书自动连拍，零延迟且边拍边充电。
+                      </p>
+                      <div id="adbStatusBox" class="adb-status-box">正在检测 Android 设备...</div>
+                      <div class="toolbar-row">
+                        <button id="refreshAdbBtn" type="button" class="btn btn-sm">检测手机连接</button>
+                        <button id="adbReverseBtn" type="button" class="btn btn-sm btn-primary">一键打通 USB 通道并在手机打开</button>
+                      </div>
+                      <div id="mobileUsbUrlText" class="mono" style="font-size:12px;margin-top:8px;opacity:0.86;"></div>
+                    </div>
+
+                    <div class="qr-panel">
+                      <div class="toolbar-row" style="justify-content:center;">
+                        <strong style="font-size:14px;">2. Wi-Fi 局域网扫码连拍</strong>
+                        <span id="mobileHttpsBadge" class="pill">HTTP 模式</span>
+                      </div>
+                      <div class="qr-frame">
+                        <img id="mobileQrImg" src="/api/mobile/qr" alt="手机扫码配对二维码">
+                      </div>
+                      <div class="toolbar-row" style="justify-content:center;">
+                        <span id="mobileUrlText" class="mono" style="font-size:12px;">正在读取局域网地址...</span>
+                        <button id="copyMobileUrlBtn" type="button" class="btn btn-sm">复制链接</button>
+                      </div>
+                      <div id="mobileModeTip" style="font-size:11.5px;opacity:0.82;max-width:340px;">
+                        Windows 运行 <code>start_windows_https.bat</code>（即 <code>--auto-https</code>）后，Wi-Fi 扫码同样支持手机 0 存储实时连拍。
+                      </div>
+                    </div>
+                  </div>
+                </div>
+              </div>
+
+              <!-- Source D: Bulk Folder / PDF Import -->
+              <div id="src-folder_import" class="capture-source-pane hidden">
+                <div class="panel-inset" style="max-width:680px;">
+                  <h2 class="card-title">十万页存量扫描件 / PDF 批量入库</h2>
+                  <div class="field-row">
+                    <label for="folderPathInput">本地图片或 PDF 目录绝对路径</label>
+                    <input id="folderPathInput" class="input" type="text" placeholder="例如：D:\Scans\book_01 或 ~/Scans/book_01">
+                  </div>
+                  <label class="toggle-item" style="margin-bottom:12px;">
+                    <input id="folderRecursiveChk" class="toggle-switch" type="checkbox" checked>
+                    <span>递归扫描子目录（支持 JPG / PNG / WebP / TIFF / BMP / PDF，自动 SHA-256 去重）</span>
+                  </label>
+                  <button id="startFolderImportBtn" type="button" class="btn btn-primary">启动后台批量导入任务</button>
+                </div>
+              </div>
+            </div>
+
+            <!-- Shutter Console -->
+            <div class="shutter-console">
+              <div class="shutter-console-left">
+                <label class="btn btn-sm" style="cursor:pointer;">
+                  <span>上传本地图片</span>
+                  <input id="manualUploadInput" type="file" accept="image/*" multiple class="hidden">
+                </label>
+                <label class="toggle-item toggle-compact">
+                  <input id="beepToggleChk" class="toggle-switch" type="checkbox" checked>
+                  <span>提示音</span>
+                </label>
+              </div>
+
+              <button id="captureShutterBtn" type="button" class="btn btn-shutter btn-shutter-pill">
+                <svg class="icon" viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="9"/><circle cx="12" cy="12" r="4"/></svg>
+                <span>拍照入库</span>
+                <kbd class="kbd">Space</kbd>
+              </button>
+
+              <div class="shutter-console-right">
+                <button id="undoLastCaptureBtn" type="button" class="btn btn-sm btn-warn">
+                  <span>撤销重拍</span>
+                  <kbd class="kbd">Backspace</kbd>
+                </button>
+              </div>
+            </div>
+
+            <!-- Contact-Sheet Filmstrip -->
+            <div class="filmstrip-tray">
+              <div class="toolbar-between" style="margin-bottom:2px;">
+                <span class="muted-note" style="font-weight:600;">最近入库缩略图（拍完即落盘 · 点击直接跳转复核）</span>
+              </div>
+              <div id="recentCaptureStrip" class="recent-strip scroller"></div>
             </div>
           </div>
-          <div class="compare-slider-row">
-            <input id="compareSlider" class="compare-slider" type="range" min="0" max="100" value="50" aria-label="原图与清洗结果对比滑杆">
-            <div class="compare-presets" role="group" aria-label="快速切换对比视角">
-              <button type="button" class="btn btn-compact" data-compare-preset="100">看原图</button>
-              <button type="button" class="btn btn-compact" data-compare-preset="50">50/50</button>
-              <button type="button" class="btn btn-compact" data-compare-preset="0">看成片</button>
+
+          <!-- Right: Docked Optical Inspector (316px) -->
+          <aside class="capture-inspector scroller">
+            <h2 class="card-title" style="margin:0;">光学采集预设与遥测</h2>
+
+            <!-- L0 Live Telemetry -->
+            <div id="captureQaCard" class="panel-inset">
+              <div class="muted-note">最近一拍 L0 毫秒级质检</div>
+              <div id="captureQaSummary" class="qa-summary-title">尚无采集记录</div>
+              <div class="qa-meter-track" aria-hidden="true">
+                <div id="qaBlurBar" class="qa-meter-fill"></div>
+              </div>
+              <div class="qa-telemetry-grid">
+                <div class="qa-tele-cell"><div class="qa-tele-label">清晰度</div><div id="qaValBlur" class="qa-tele-val">-</div></div>
+                <div class="qa-tele-cell"><div class="qa-tele-label">亮度</div><div id="qaValBright" class="qa-tele-val">-</div></div>
+                <div class="qa-tele-cell"><div class="qa-tele-label">重复帧</div><div id="qaValDup" class="qa-tele-val">-</div></div>
+              </div>
+              <div id="captureQaMetrics" class="qa-summary-metrics hidden">清晰度：- · 亮度：- · 重复校验：-</div>
             </div>
-          </div>
-          <div id="reviewCleanDiag" class="muted-note" style="margin-top:4px;">可在图像上直接左右拖动或滑杆对比去阴影与展平效果</div>
+
+            <!-- Optical Hardware Switches -->
+            <div class="switch-stack">
+              <label class="toggle-row"><span>双页自动拆单页 (L/R)</span><input id="optSplitSpread" class="toggle-switch" type="checkbox"></label>
+              <label class="toggle-row"><span>智能文档切边矫正</span><input id="optAutoCrop" class="toggle-switch" type="checkbox" checked></label>
+              <label class="toggle-row"><span>书页弯曲透视展平</span><input id="optDewarp" class="toggle-switch" type="checkbox" checked></label>
+              <label class="toggle-row"><span>边缘压书手指擦除</span><input id="optRemoveFingers" class="toggle-switch" type="checkbox" checked></label>
+              <label class="toggle-row"><span>微倾版面自动纠偏</span><input id="optDeskew" class="toggle-switch" type="checkbox" checked></label>
+              <label class="toggle-row"><span>去噪与折痕保真滤波</span><input id="optDenoise" class="toggle-switch" type="checkbox" checked></label>
+            </div>
+
+            <!-- Paper Output Swatches (synced with #optEnhanceMode) -->
+            <div class="field-row">
+              <label for="optEnhanceMode">成片纸面输出模式</label>
+              <div class="paper-swatch-grid">
+                <button type="button" class="paper-swatch is-active" data-enhance-swatch="clean_color">
+                  <span class="swatch-chip swatch-chip-color" aria-hidden="true"></span>
+                  <span>洁净彩页</span>
+                </button>
+                <button type="button" class="paper-swatch" data-enhance-swatch="grayscale_crisp">
+                  <span class="swatch-chip swatch-chip-gray" aria-hidden="true"></span>
+                  <span>锐利灰度</span>
+                </button>
+                <button type="button" class="paper-swatch" data-enhance-swatch="bw_sauvola">
+                  <span class="swatch-chip swatch-chip-bw" aria-hidden="true"></span>
+                  <span>黑白二值</span>
+                </button>
+              </div>
+              <select id="optEnhanceMode" class="input hidden" aria-label="成片底色输出模式">
+                <option value="clean_color">洁净彩页漂白（保留插图印章）</option>
+                <option value="grayscale_crisp">高清锐利灰度（适合纯文印本）</option>
+                <option value="bw_sauvola">Sauvola 锐利黑白二值</option>
+              </select>
+            </div>
+
+            <button id="saveBookProfileBtn" type="button" class="btn btn-block">保存为本书默认模板</button>
+          </aside>
+        </div>
+      </section>
+
+      <!-- TAB 2: PIPELINE MONITOR -->
+      <section id="tab-pipeline" class="tab-panel tab-panel-scroll scroller" role="tabpanel" aria-labelledby="tabBtn-pipeline">
+        <div class="kpi-grid">
+          <div class="kpi-card"><div class="kpi-label">本书总页数</div><div id="kpiTotal" class="kpi-val">0</div></div>
+          <div class="kpi-card"><div class="kpi-label">已完成 / 已通过</div><div id="kpiCompleted" class="kpi-val kpi-val-ok">0</div></div>
+          <div class="kpi-card"><div class="kpi-label">待图像清洗</div><div id="kpiClean" class="kpi-val">0</div></div>
+          <div class="kpi-card"><div class="kpi-label">待离线 OCR</div><div id="kpiOcr" class="kpi-val">0</div></div>
+          <div class="kpi-card"><div class="kpi-label">需人工复核</div><div id="kpiReview" class="kpi-val kpi-val-warn">0</div></div>
+          <div class="kpi-card"><div class="kpi-label">失败待重试</div><div id="kpiFailed" class="kpi-val kpi-val-danger">0</div></div>
         </div>
 
-        <!-- Right: OCR Text Editor & Actions -->
         <div class="card">
-          <div class="toolbar-between" style="margin-bottom:8px;">
-            <strong>文本校对与元数据</strong>
-            <span id="reviewConfBadge" class="pill">置信度 -</span>
-          </div>
-          <div id="reviewFlagRow" class="toolbar-row" style="margin-bottom:8px;"></div>
-          <textarea id="reviewTextEditor" class="input ocr-editor scroller" placeholder="等待 OCR 识别结果..."></textarea>
-          <div class="review-actions">
-            <button id="saveTextBtn" type="button" class="btn">
-              <span>保存</span>
-              <kbd class="kbd">Ctrl+S</kbd>
-            </button>
-            <button id="llmCleanPageBtn" type="button" class="btn">LLM 精校</button>
-            <button id="approvePageBtn" type="button" class="btn btn-ok">
-              <span>通过</span>
-              <kbd class="kbd">A</kbd>
-            </button>
-            <button id="deletePageBtn" type="button" class="btn btn-danger">删除</button>
-          </div>
-        </div>
-      </div>
-    </section>
-
-    <!-- TAB 4: DATA CLEANING & EXCEL SCHEMA -->
-    <section id="tab-dataclean" class="tab-panel" role="tabpanel" aria-labelledby="tabBtn-dataclean">
-      <div class="dataclean-grid">
-        <aside class="card">
-          <h2 class="card-title">清洗模板与目标 Excel 表头定义</h2>
-          <div class="toolbar-row" style="margin-bottom:10px;">
-            <select id="excelTemplateSelect" class="book-select" style="flex:1;min-width:140px;"></select>
-            <button id="newTemplateBtn" type="button" class="btn btn-sm">+ 新建模板</button>
-            <label class="btn btn-sm" style="cursor:pointer;">
-              <span>从 .xlsx 导入表头</span>
-              <input id="importXlsxHeaderInput" type="file" accept=".xlsx" class="hidden">
-            </label>
-          </div>
-
-          <div class="grid-2" style="margin-bottom:10px;">
-            <div class="field-row">
-              <label for="entrySheetNameInput">正文条目 Sheet 名称</label>
-              <input id="entrySheetNameInput" class="input" type="text" value="正文结构化条目">
-            </div>
-            <div class="field-row">
-              <label for="tableSheetNameInput">提取表格 Sheet 名称</label>
-              <input id="tableSheetNameInput" class="input" type="text" value="提取表格明细">
-            </div>
-          </div>
-
-          <div class="muted-note" style="font-weight:700;margin:10px 0 6px;">通用数据清洗规则</div>
-          <div class="preset-grid">
-            <label class="toggle-item"><input id="ruleFullwidthChk" type="checkbox" checked><span>全角数字字母转半角</span></label>
-            <label class="toggle-item"><input id="ruleDatesChk" type="checkbox" checked><span>日期统一 YYYY-MM-DD</span></label>
-            <label class="toggle-item"><input id="ruleHeadersChk" type="checkbox" checked><span>剔除重复页眉/页脚</span></label>
-            <label class="toggle-item"><input id="ruleNoiseChk" type="checkbox" checked><span>剔除乱码与非法控制符</span></label>
-            <label class="toggle-item"><input id="ruleDedupChk" type="checkbox" checked><span>正文条目自动去重</span></label>
-            <label class="toggle-item" style="justify-content:space-between;">
-              <span>低置信标黄</span>
-              <input id="ruleMinConfInput" type="number" step="0.01" min="0.50" max="0.99" value="0.82" style="width:68px;padding:3px 6px;" class="input">
-            </label>
-          </div>
-
-          <div class="toolbar-between" style="margin:10px 0 6px;">
-            <strong class="muted-note">自定义 Excel 列映射（支持随时调整）</strong>
-            <button id="addSchemaColBtn" type="button" class="btn btn-sm">+ 新增字段列</button>
-          </div>
-          <div class="schema-head" aria-hidden="true">
-            <span>Excel 列名</span><span>取值方式</span><span>字段 / 规则</span><span>校验</span><span></span>
-          </div>
-          <div id="schemaColList" class="schema-list scroller"></div>
-
-          <div class="toolbar-row" style="margin-top:12px;">
-            <button id="saveTemplateBtn" type="button" class="btn">保存模板修改</button>
-            <button id="deleteTemplateBtn" type="button" class="btn btn-danger">删除模板</button>
-            <button id="runDataCleanBtn" type="button" class="btn btn-primary" style="flex:1;">运行结构化清洗与拆表</button>
-          </div>
-        </aside>
-
-        <div class="card">
-          <div class="toolbar-between" style="margin-bottom:10px;">
+          <div class="toolbar-between">
             <div>
-              <h2 class="card-title" style="margin:0;">清洗预览与异常标黄审查</h2>
-              <div id="dcSummaryNote" class="muted-note" style="margin-top:2px;">点击左侧「运行结构化清洗与拆表」预览结构化数据</div>
-            </div>
-            <button id="dcExportXlsxBtn" type="button" class="btn btn-ok">导出多 Sheet Excel (.xlsx)</button>
-          </div>
-
-          <div class="kpi-grid" style="margin-bottom:12px;">
-            <div class="kpi-card"><div class="kpi-label">正文结构化条目</div><div id="dcKpiEntries" class="kpi-val">0</div></div>
-            <div class="kpi-card"><div class="kpi-label">提取独立表格</div><div id="dcKpiTables" class="kpi-val">0</div></div>
-            <div class="kpi-card"><div class="kpi-label">表格明细行数</div><div id="dcKpiTableRows" class="kpi-val">0</div></div>
-            <div class="kpi-card"><div class="kpi-label">异常待复核行</div><div id="dcKpiWarnings" class="kpi-val kpi-val-warn">0</div></div>
-          </div>
-
-          <div class="toolbar-between" style="margin-bottom:10px;">
-            <div class="filter-pills">
-              <button class="btn btn-sm btn-primary is-active" data-dc-kind="ENTRY" type="button">正文结构化条目</button>
-              <button class="btn btn-sm" data-dc-kind="TABLE" type="button">提取表格明细</button>
-              <button class="btn btn-sm" data-dc-kind="WARNINGS" type="button">仅异常标黄行</button>
+              <h2 class="card-title" style="margin:0;display:inline-flex;">流水线总进度与引擎调度</h2>
+              <span id="globalProgressNote" class="muted-note" style="margin-left:8px;"></span>
             </div>
             <div class="toolbar-row">
-              <button id="dcPrevPageBtn" type="button" class="btn btn-sm">上一页</button>
-              <span id="dcPagerInfo" class="muted-note mono">0 / 0</span>
-              <button id="dcNextPageBtn" type="button" class="btn btn-sm">下一页</button>
+              <button id="pausePipelineBtn" type="button" class="btn btn-sm">暂停后台任务</button>
+              <button id="resumePipelineBtn" type="button" class="btn btn-sm btn-primary">恢复运行</button>
+              <button id="retryFailedBtn" type="button" class="btn btn-sm btn-warn">一键重试失败页</button>
             </div>
           </div>
+          <div class="stacked-bar" aria-label="页面处理状态分布">
+            <div id="barDone" class="seg-done" style="width:0%"></div>
+            <div id="barProc" class="seg-proc" style="width:0%"></div>
+            <div id="barReview" class="seg-review" style="width:0%"></div>
+            <div id="barFailed" class="seg-fail" style="width:0%"></div>
+          </div>
+          <div class="legend-row">
+            <span class="legend-item"><span class="dot" style="color:var(--ok);"></span>已完成 / 已通过</span>
+            <span class="legend-item"><span class="dot" style="color:var(--accent);"></span>清洗 / OCR 排队中</span>
+            <span class="legend-item"><span class="dot" style="color:var(--warn);"></span>需人工复核</span>
+            <span class="legend-item"><span class="dot" style="color:var(--danger);"></span>处理失败</span>
+          </div>
+        </div>
 
-          <div class="table-wrap scroller" style="max-height:480px;">
+        <div class="card" style="flex:1;display:flex;flex-direction:column;min-height:240px;">
+          <h2 class="card-title">批量导入与导出后台任务队列</h2>
+          <div class="table-wrap" style="flex:1;">
             <table class="data-table">
-              <thead id="dcPreviewHead"></thead>
-              <tbody id="dcPreviewBody"></tbody>
+              <thead>
+                <tr>
+                  <th>任务 ID</th>
+                  <th>类型</th>
+                  <th>状态</th>
+                  <th>进度</th>
+                  <th>结果 / 备注</th>
+                  <th>操作</th>
+                </tr>
+              </thead>
+              <tbody id="jobsTableBody"></tbody>
             </table>
           </div>
         </div>
-      </div>
-    </section>
+      </section>
 
-    <!-- TAB 5: EXPORT -->
-    <section id="tab-export" class="tab-panel" role="tabpanel" aria-labelledby="tabBtn-export">
-      <div class="export-grid">
-        <div class="card card-highlight export-card">
-          <div>
-            <h2 class="card-title">
-              <svg class="icon" viewBox="0 0 24 24" aria-hidden="true"><rect x="3" y="3" width="18" height="18" rx="2"/><path d="M3 9h18"/><path d="M9 21V9"/></svg>
-              <span>多 Sheet 成品 Excel (.xlsx)</span>
-            </h2>
-            <p class="export-card-desc">自动拆分为「正文结构化条目」「提取表格明细」「异常待复核(标黄)」「清洗汇总报告」四个工作表。</p>
-            <div class="field-row" style="margin-top:10px;">
-              <label for="exportExcelTemplateSelect">导出套用表头模板</label>
-              <select id="exportExcelTemplateSelect" class="input"></select>
+      <!-- TAB 3: PRO LIGHTBOX REVIEW & COMPARISON -->
+      <section id="tab-review" class="tab-panel" role="tabpanel" aria-labelledby="tabBtn-review">
+        <div class="review-workstation">
+          <div class="review-toolbar">
+            <div class="filter-pills">
+              <button class="btn btn-sm btn-primary is-active" data-filter="ALL" type="button">全部页面</button>
+              <button class="btn btn-sm" data-filter="NEEDS_REVIEW" type="button">需人工复核</button>
+              <button class="btn btn-sm" data-filter="READY" type="button">待终审</button>
+              <button class="btn btn-sm" data-filter="APPROVED" type="button">已通过</button>
+              <button class="btn btn-sm" data-filter="FAILED" type="button">异常失败</button>
+            </div>
+            <div class="toolbar-row">
+              <select id="reviewQaFilter" class="book-select" style="min-width:125px;">
+                <option value="ALL">全部质检标签</option>
+                <option value="ANY_QA">任意告警页</option>
+                <option value="BLURRY">仅模糊告警</option>
+                <option value="DUPLICATE">仅疑似重复</option>
+                <option value="LOW_CONF">仅 OCR 低置信</option>
+              </select>
+              <input id="reviewSearchInput" class="input" style="width:180px;padding:5px 9px;" type="search" placeholder="搜索正文关键词...">
+              <button id="prevPageListBtn" type="button" class="btn btn-sm">上一组</button>
+              <span id="pageListPagerInfo" class="muted-note mono">0 / 0</span>
+              <button id="nextPageListBtn" type="button" class="btn btn-sm">下一组</button>
             </div>
           </div>
-          <button class="btn btn-ok export-trigger" data-format="xlsx" type="button">生成并导出 Excel (.xlsx)</button>
-        </div>
 
-        <div class="card export-card">
-          <div>
-            <h2 class="card-title">
-              <svg class="icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/><line x1="16" y1="13" x2="8" y2="13"/><line x1="16" y1="17" x2="8" y2="17"/></svg>
-              <span>洁净可搜索 PDF</span>
-            </h2>
-            <p class="export-card-desc">将去阴影展平后的高清图像与透明中文检索层打包为标准 PDF，支持全文划词复制与搜索。</p>
+          <div class="review-layout">
+            <!-- Left Contact Sheet -->
+            <div class="review-rail">
+              <div class="toolbar-between" style="margin-bottom:8px;">
+                <span class="muted-note" style="font-weight:700;">页面列表</span>
+                <span class="muted-note"><kbd class="kbd">J</kbd>/<kbd class="kbd">K</kbd> 切页</span>
+              </div>
+              <div id="reviewGallery" class="review-gallery scroller"></div>
+            </div>
+
+            <!-- Center Darkroom Comparison Lightbox -->
+            <div class="review-lightbox">
+              <div class="toolbar-between">
+                <strong id="reviewImageTitle" style="font-size:14px;">未选择页面</strong>
+                <div class="toolbar-row">
+                  <select id="recleanModeSelect" class="book-select" style="min-width:115px;padding:4px 8px;">
+                    <option value="clean_color">洁净彩页</option>
+                    <option value="grayscale_crisp">锐利灰度</option>
+                    <option value="bw_sauvola">Sauvola 黑白</option>
+                  </select>
+                  <button id="recleanPageBtn" type="button" class="btn btn-sm">重洗此页</button>
+                  <button id="zoomToggleBtn" type="button" class="btn btn-sm">放大细节</button>
+                </div>
+              </div>
+
+              <div class="compare-stage scroller">
+                <div id="compareWrap" class="compare-wrap" title="直接在图像上左右拖动对比原图与清洗成片">
+                  <img id="compareCleanImg" src="data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7" alt="清洗后成片">
+                  <div id="compareRawLayer" class="compare-raw-layer" style="clip-path: inset(0 50% 0 0);">
+                    <img id="compareRawImg" src="data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7" alt="原始翻拍图">
+                  </div>
+                  <div id="compareDivider" class="compare-divider" style="left:50%;">
+                    <div class="compare-handle" aria-hidden="true">
+                      <svg class="icon icon-sm" viewBox="0 0 24 24"><path d="m8 9-4 3 4 3"/><path d="m16 9 4 3-4 3"/></svg>
+                    </div>
+                  </div>
+                  <span class="compare-label left">原图 (Raw)</span>
+                  <span class="compare-label right">清洗成片 (Clean)</span>
+                </div>
+              </div>
+
+              <div class="compare-slider-row">
+                <input id="compareSlider" class="compare-slider" type="range" min="0" max="100" value="50" aria-label="原图与清洗结果对比滑杆">
+                <div class="compare-presets" role="group" aria-label="快速切换对比视角">
+                  <button type="button" class="btn btn-compact" data-compare-preset="100">看原图</button>
+                  <button type="button" class="btn btn-compact" data-compare-preset="50">50/50</button>
+                  <button type="button" class="btn btn-compact" data-compare-preset="0">看成片</button>
+                </div>
+              </div>
+              <div id="reviewCleanDiag" class="muted-note">可在图像上直接左右拖动或点击预设对比去阴影与展平效果</div>
+            </div>
+
+            <!-- Right Docked OCR Proofreading Inspector -->
+            <div class="review-inspector">
+              <div class="toolbar-between">
+                <h2 class="card-title" style="margin:0;">文本校对与元数据</h2>
+                <span id="reviewConfBadge" class="pill">置信度 -</span>
+              </div>
+              <div id="reviewFlagRow" class="toolbar-row"></div>
+              <textarea id="reviewTextEditor" class="input ocr-editor scroller" placeholder="等待 OCR 识别结果..."></textarea>
+              <div class="review-actions">
+                <button id="saveTextBtn" type="button" class="btn">
+                  <span>保存</span>
+                  <kbd class="kbd">Ctrl+S</kbd>
+                </button>
+                <button id="llmCleanPageBtn" type="button" class="btn">LLM 精校</button>
+                <button id="approvePageBtn" type="button" class="btn btn-ok">
+                  <span>通过</span>
+                  <kbd class="kbd">A</kbd>
+                </button>
+                <button id="deletePageBtn" type="button" class="btn btn-danger">删除</button>
+              </div>
+            </div>
           </div>
-          <button class="btn btn-primary export-trigger" data-format="pdf" type="button">生成可搜索 PDF</button>
         </div>
+      </section>
 
-        <div class="card export-card">
-          <div>
-            <h2 class="card-title">
-              <svg class="icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><path d="M8 15V9l3 3 3-3v6"/></svg>
-              <span>纯净 Markdown (.md)</span>
-            </h2>
-            <p class="export-card-desc">包含 YAML 书目信息、自动段落合并、章节标题层级及逐页锚点注释。</p>
+      <!-- TAB 4: DATA CLEANING & EXCEL SCHEMA -->
+      <section id="tab-dataclean" class="tab-panel" role="tabpanel" aria-labelledby="tabBtn-dataclean">
+        <div class="dataclean-workstation">
+          <aside class="dataclean-inspector scroller">
+            <h2 class="card-title" style="margin:0;">清洗模板与 Excel 表头定义</h2>
+            <div class="toolbar-row">
+              <select id="excelTemplateSelect" class="book-select" style="flex:1;min-width:130px;"></select>
+              <button id="newTemplateBtn" type="button" class="btn btn-sm">+ 新建</button>
+              <label class="btn btn-sm" style="cursor:pointer;">
+                <span>导入 .xlsx</span>
+                <input id="importXlsxHeaderInput" type="file" accept=".xlsx" class="hidden">
+              </label>
+            </div>
+
+            <div class="grid-2">
+              <div class="field-row">
+                <label for="entrySheetNameInput">正文条目 Sheet</label>
+                <input id="entrySheetNameInput" class="input" type="text" value="正文结构化条目">
+              </div>
+              <div class="field-row">
+                <label for="tableSheetNameInput">提取表格 Sheet</label>
+                <input id="tableSheetNameInput" class="input" type="text" value="提取表格明细">
+              </div>
+            </div>
+
+            <div class="switch-stack">
+              <div class="muted-note" style="font-weight:700;">通用清洗规则</div>
+              <label class="toggle-row"><span>全角数字字母转半角</span><input id="ruleFullwidthChk" class="toggle-switch" type="checkbox" checked></label>
+              <label class="toggle-row"><span>日期统一 YYYY-MM-DD</span><input id="ruleDatesChk" class="toggle-switch" type="checkbox" checked></label>
+              <label class="toggle-row"><span>剔除重复页眉 / 页脚</span><input id="ruleHeadersChk" class="toggle-switch" type="checkbox" checked></label>
+              <label class="toggle-row"><span>剔除乱码与控制符</span><input id="ruleNoiseChk" class="toggle-switch" type="checkbox" checked></label>
+              <label class="toggle-row"><span>正文条目自动去重</span><input id="ruleDedupChk" class="toggle-switch" type="checkbox" checked></label>
+              <label class="toggle-row">
+                <span>低置信标黄阈值</span>
+                <input id="ruleMinConfInput" type="number" step="0.01" min="0.50" max="0.99" value="0.82" style="width:74px;padding:3px 6px;" class="input">
+              </label>
+            </div>
+
+            <div class="toolbar-between" style="margin-top:4px;">
+              <strong class="muted-note">自定义 Excel 列映射</strong>
+              <button id="addSchemaColBtn" type="button" class="btn btn-sm">+ 新增字段列</button>
+            </div>
+            <div class="schema-head" aria-hidden="true">
+              <span>列名</span><span>方式</span><span>字段 / 规则</span><span>校验</span><span></span>
+            </div>
+            <div id="schemaColList" class="schema-list scroller"></div>
+
+            <div class="toolbar-row" style="margin-top:6px;">
+              <button id="saveTemplateBtn" type="button" class="btn btn-sm">保存模板</button>
+              <button id="deleteTemplateBtn" type="button" class="btn btn-sm btn-danger">删除</button>
+              <button id="runDataCleanBtn" type="button" class="btn btn-primary" style="flex:1;">运行结构化清洗与拆表</button>
+            </div>
+          </aside>
+
+          <div class="dataclean-preview">
+            <div class="toolbar-between">
+              <div>
+                <h2 class="card-title" style="margin:0;">清洗预览与异常标黄审查</h2>
+                <div id="dcSummaryNote" class="muted-note" style="margin-top:2px;">点击左侧「运行结构化清洗与拆表」预览结构化数据</div>
+              </div>
+              <button id="dcExportXlsxBtn" type="button" class="btn btn-ok">导出多 Sheet Excel (.xlsx)</button>
+            </div>
+
+            <div class="kpi-grid">
+              <div class="kpi-card"><div class="kpi-label">正文结构化条目</div><div id="dcKpiEntries" class="kpi-val">0</div></div>
+              <div class="kpi-card"><div class="kpi-label">提取独立表格</div><div id="dcKpiTables" class="kpi-val">0</div></div>
+              <div class="kpi-card"><div class="kpi-label">表格明细行数</div><div id="dcKpiTableRows" class="kpi-val">0</div></div>
+              <div class="kpi-card"><div class="kpi-label">异常待复核行</div><div id="dcKpiWarnings" class="kpi-val kpi-val-warn">0</div></div>
+            </div>
+
+            <div class="toolbar-between">
+              <div class="filter-pills">
+                <button class="btn btn-sm btn-primary is-active" data-dc-kind="ENTRY" type="button">正文结构化条目</button>
+                <button class="btn btn-sm" data-dc-kind="TABLE" type="button">提取表格明细</button>
+                <button class="btn btn-sm" data-dc-kind="WARNINGS" type="button">仅异常标黄行</button>
+              </div>
+              <div class="toolbar-row">
+                <button id="dcPrevPageBtn" type="button" class="btn btn-sm">上一页</button>
+                <span id="dcPagerInfo" class="muted-note mono">0 / 0</span>
+                <button id="dcNextPageBtn" type="button" class="btn btn-sm">下一页</button>
+              </div>
+            </div>
+
+            <div class="dataclean-table-wrap scroller">
+              <table class="data-table">
+                <thead id="dcPreviewHead"></thead>
+                <tbody id="dcPreviewBody"></tbody>
+              </table>
+            </div>
           </div>
-          <button class="btn btn-primary export-trigger" data-format="markdown" type="button">生成 Markdown</button>
         </div>
+      </section>
 
-        <div class="card export-card">
-          <div>
-            <h2 class="card-title">
-              <svg class="icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M4 19.5v-15A2.5 2.5 0 0 1 6.5 2H20v20H6.5a2.5 2.5 0 0 1 0-5H20"/></svg>
-              <span>标准 EPUB 3 电子书</span>
-            </h2>
-            <p class="export-card-desc">自动分章并生成合规目录导航，可直接导入 Kindle、Apple Books 或微信读书。</p>
+      <!-- TAB 5: ASYMMETRIC EXPORT CENTER -->
+      <section id="tab-export" class="tab-panel tab-panel-scroll scroller" role="tabpanel" aria-labelledby="tabBtn-export">
+        <div class="export-hero-grid">
+          <!-- Featured Multi-Sheet Excel Hero -->
+          <div class="card card-highlight" style="display:flex;flex-direction:column;justify-content:space-between;gap:12px;">
+            <div>
+              <h2 class="card-title">
+                <svg class="icon" viewBox="0 0 24 24" aria-hidden="true"><rect x="3" y="3" width="18" height="18" rx="2"/><path d="M3 9h18"/><path d="M9 21V9"/></svg>
+                <span>主力交付：多 Sheet 成品 Excel (.xlsx)</span>
+              </h2>
+              <p class="muted-note" style="margin:0;">自动清洗、正文与表格拆轨，异常页高亮标黄直达复核：</p>
+              <div class="sheet-tab-strip" aria-hidden="true">
+                <span class="sheet-tab-chip">Sheet 1 · 正文结构化条目</span>
+                <span class="sheet-tab-chip">Sheet 2 · 提取表格明细</span>
+                <span class="sheet-tab-chip is-warn">Sheet 3 · 异常待复核 (标黄)</span>
+                <span class="sheet-tab-chip">Sheet 4 · 清洗汇总报告</span>
+              </div>
+              <div class="field-row" style="margin-top:8px;">
+                <label for="exportExcelTemplateSelect">导出套用表头模板</label>
+                <select id="exportExcelTemplateSelect" class="input"></select>
+              </div>
+            </div>
+            <button class="btn btn-ok export-trigger" data-format="xlsx" type="button">生成并导出多 Sheet Excel (.xlsx)</button>
           </div>
-          <button class="btn btn-primary export-trigger" data-format="epub" type="button">生成 EPUB 3</button>
-        </div>
 
-        <div class="card export-card">
-          <div>
-            <h2 class="card-title">
-              <svg class="icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M8 3H7a2 2 0 0 0-2 2v5a2 2 0 0 1-2 2 2 2 0 0 1 2 2v5c0 1.1.9 2 2 2h1"/><path d="M16 3h1a2 2 0 0 1 2 2v5a2 2 0 0 0 2 2 2 2 0 0 0-2 2v5a2 2 0 0 1-2 2h-1"/></svg>
-              <span>知识库 RAG JSONL</span>
-            </h2>
-            <p class="export-card-desc">按页输出结构化 JSON 行记录，附带置信度与页码索引，便于导入向量检索库。</p>
+          <!-- Compact Archive Formats Rack -->
+          <div class="export-rack">
+            <div class="export-rack-row">
+              <div class="export-rack-info">
+                <div class="export-rack-title">洁净可搜索 PDF (.pdf)</div>
+                <div class="export-rack-desc">去阴影高清图 + 透明中文检索层，支持划词搜索复制</div>
+              </div>
+              <button class="btn btn-primary btn-sm export-trigger" data-format="pdf" type="button">生成 PDF</button>
+            </div>
+            <div class="export-rack-row">
+              <div class="export-rack-info">
+                <div class="export-rack-title">纯净 Markdown (.md)</div>
+                <div class="export-rack-desc">含 YAML 书目头、章节标题与逐页锚点注释</div>
+              </div>
+              <button class="btn btn-primary btn-sm export-trigger" data-format="markdown" type="button">生成 MD</button>
+            </div>
+            <div class="export-rack-row">
+              <div class="export-rack-info">
+                <div class="export-rack-title">标准 EPUB 3 电子书 (.epub)</div>
+                <div class="export-rack-desc">合规目录导航，直接导入 Kindle / Apple Books / 微信读书</div>
+              </div>
+              <button class="btn btn-primary btn-sm export-trigger" data-format="epub" type="button">生成 EPUB</button>
+            </div>
+            <div class="export-rack-row">
+              <div class="export-rack-info">
+                <div class="export-rack-title">知识库 RAG JSONL (.jsonl)</div>
+                <div class="export-rack-desc">按页输出结构化 JSON 行与置信度索引，适配向量库</div>
+              </div>
+              <button class="btn btn-primary btn-sm export-trigger" data-format="jsonl" type="button">生成 JSONL</button>
+            </div>
           </div>
-          <button class="btn btn-primary export-trigger" data-format="jsonl" type="button">生成 JSONL</button>
         </div>
-      </div>
 
-      <div class="card">
-        <h2 class="card-title">本书导出文件历史</h2>
-        <div class="table-wrap">
-          <table class="data-table">
-            <thead>
-              <tr>
-                <th>任务 ID</th>
-                <th>格式</th>
-                <th>状态</th>
-                <th>页数</th>
-                <th>下载</th>
-              </tr>
-            </thead>
-            <tbody id="exportJobsBody"></tbody>
-          </table>
+        <div class="card" style="flex:1;display:flex;flex-direction:column;min-height:220px;">
+          <h2 class="card-title">本书导出文件历史</h2>
+          <div class="table-wrap" style="flex:1;">
+            <table class="data-table">
+              <thead>
+                <tr>
+                  <th>任务 ID</th>
+                  <th>格式</th>
+                  <th>状态</th>
+                  <th>页数</th>
+                  <th>下载</th>
+                </tr>
+              </thead>
+              <tbody id="exportJobsBody"></tbody>
+            </table>
+          </div>
         </div>
-      </div>
-    </section>
-  </main>
+      </section>
+    </main>
+  </div>
 
   <!-- Native light-dismiss New Book Dialog -->
   <dialog id="newBookDialog" closedby="any" aria-labelledby="newBookTitle">
@@ -656,10 +715,9 @@
         <button type="button" class="btn btn-sm" data-close-dialog="settingsDialog">关闭</button>
       </div>
       <form id="settingsForm" class="stack-sm">
-        <!-- Section 1: Active OCR Engine & Hardware Pre-Check + On-Demand Add-on -->
         <div class="panel-inset">
           <div class="toolbar-between" style="margin-bottom:8px;">
-            <strong style="font-size:14px;">1. OCR 识别引擎选择（默认内置 RapidOCR 零成本离线）</strong>
+            <strong style="font-size:13.5px;">1. OCR 识别引擎选择（默认内置 RapidOCR 零成本离线）</strong>
             <span id="addonStateBadge" class="pill">未安装插件包</span>
           </div>
 
@@ -673,29 +731,27 @@
             </select>
           </div>
 
-          <!-- Hardware Pre-Check Box -->
           <div id="hwCheckBox" class="panel-subcard" style="margin-bottom:10px;">
             <div class="toolbar-between" style="margin-bottom:6px;">
-              <strong style="font-size:13px;">本机硬件适配检查（DeepSeek-OCR 2 本地按需加载包）</strong>
+              <strong style="font-size:12.5px;">本机硬件适配检查（DeepSeek-OCR 2 本地按需加载包）</strong>
               <button id="recheckHwBtn" type="button" class="btn btn-sm">重新检测硬件</button>
             </div>
             <div id="hwSummaryText" class="muted-note">正在检测 GPU / 显存 / 内存 / 磁盘...</div>
             <div id="hwDetailList" style="font-size:12px;margin-top:6px;"></div>
           </div>
 
-          <!-- Download / Progress Controls -->
           <div style="margin-bottom:10px;">
             <div class="toolbar-row" style="margin-bottom:8px;">
-              <label style="font-size:12px;display:flex;align-items:center;gap:5px;cursor:pointer;">
-                <input id="addonMirrorChk" type="checkbox" checked>
-                <span>优先使用国内镜像源 (hf-mirror.com)</span>
+              <label class="toggle-item toggle-compact">
+                <input id="addonMirrorChk" class="toggle-switch" type="checkbox" checked>
+                <span>优先国内镜像源 (hf-mirror.com)</span>
               </label>
-              <label style="font-size:12px;display:flex;align-items:center;gap:5px;cursor:pointer;">
-                <input id="addonForceChk" type="checkbox">
+              <label class="toggle-item toggle-compact">
+                <input id="addonForceChk" class="toggle-switch" type="checkbox">
                 <span>忽略检查强制尝试下载</span>
               </label>
             </div>
-            <div class="stacked-bar" style="height:10px;margin:6px 0;">
+            <div class="stacked-bar" style="height:8px;margin:6px 0;">
               <div id="addonProgressBar" class="seg-done" style="width:0%"></div>
             </div>
             <div id="addonProgressText" class="muted-note">尚未安装（不影响内置 RapidOCR 正常使用）</div>
@@ -707,7 +763,6 @@
             </div>
           </div>
 
-          <!-- DeepSeek-OCR 2 Vision API Settings -->
           <div class="section-divider">
             <strong style="font-size:13px;display:block;margin-bottom:8px;">DeepSeek-OCR 2 视觉 API（无独显电脑 / 混合升级用）</strong>
             <div class="grid-2" style="margin-bottom:8px;">
@@ -731,9 +786,9 @@
               </div>
             </div>
             <div class="toolbar-between">
-              <label style="font-size:12px;display:flex;align-items:center;gap:5px;cursor:pointer;">
-                <input id="ocrHybridTablesChk" type="checkbox" checked>
-                <span>混合模式下检测到复杂表格自动升级 DeepSeek-OCR 2</span>
+              <label class="toggle-item toggle-compact">
+                <input id="ocrHybridTablesChk" class="toggle-switch" type="checkbox" checked>
+                <span>复杂表格自动升级 DeepSeek-OCR 2</span>
               </label>
               <button id="testOcrApiBtn" type="button" class="btn btn-sm">测试视觉 API</button>
             </div>
@@ -741,7 +796,6 @@
           </div>
         </div>
 
-        <!-- Section 2: Optional Text Proofreading LLM -->
         <details class="panel-inset">
           <summary style="cursor:pointer;font-weight:700;font-size:13px;">2. 可选：文本级 LLM 精校设置（默认关闭，仅在 OCR 之后二次校对）</summary>
           <div style="margin-top:10px;">
@@ -803,6 +857,24 @@
           <button type="submit" class="btn btn-primary">创建模板</button>
         </div>
       </form>
+    </div>
+  </dialog>
+
+  <!-- Native light-dismiss Keyboard Shortcuts Dialog -->
+  <dialog id="shortcutsDialog" closedby="any" aria-labelledby="shortcutsTitle">
+    <div class="dialog-inner">
+      <div class="dialog-head">
+        <h2 id="shortcutsTitle">光学工作台快捷键指南</h2>
+        <button type="button" class="btn btn-sm" data-close-dialog="shortcutsDialog">关闭</button>
+      </div>
+      <div class="shortcut-grid">
+        <div><kbd class="kbd">Space</kbd> / <kbd class="kbd">Enter</kbd></div><div>采集工位触发拍照入库（兼容 USB 脚踏开关）</div>
+        <div><kbd class="kbd">Backspace</kbd></div><div>立即撤销上一张废片并重置重复校验</div>
+        <div><kbd class="kbd">J</kbd> / <kbd class="kbd">K</kbd></div><div>复核界面切换下一页 / 上一页</div>
+        <div><kbd class="kbd">A</kbd></div><div>复核界面保存当前文本并一键通过</div>
+        <div><kbd class="kbd">Ctrl+S</kbd></div><div>校对框内直接保存文本修订</div>
+        <div><kbd class="kbd">?</kbd></div><div>打开 / 关闭本快捷键指南</div>
+      </div>
     </div>
   </dialog>
 

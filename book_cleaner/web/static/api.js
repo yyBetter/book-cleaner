@@ -170,36 +170,31 @@ export function wireTwoStepAction(btn, confirmLabel, onConfirm, timeoutMs = 3000
 }
 
 const THEME_STORAGE_KEY = "book_cleaner_theme";
-const THEME_CYCLE = ["system", "light", "dark"];
+const THEME_CYCLE = ["dark", "light", "system"];
 const THEME_LABELS = {
-  system: "外观：跟随系统",
-  light: "外观：浅色纸张",
-  dark: "外观：深色暗房",
+  dark: "暗房模式",
+  light: "日光浅色",
+  system: "跟随系统",
 };
 const THEME_COMPACT_LABELS = {
-  system: "系统",
-  light: "浅色",
   dark: "暗房",
+  light: "日光",
+  system: "系统",
 };
 
 export function initThemeToggle(btn, { compact = false } = {}) {
   const labels = compact ? THEME_COMPACT_LABELS : THEME_LABELS;
   function applyTheme(mode) {
-    const valid = THEME_CYCLE.includes(mode) ? mode : "system";
+    const valid = THEME_CYCLE.includes(mode) ? mode : "dark";
     if (valid === "system") {
       delete document.documentElement.dataset.theme;
-      try {
-        localStorage.removeItem(THEME_STORAGE_KEY);
-      } catch {
-        // Ignore storage errors
-      }
     } else {
       document.documentElement.dataset.theme = valid;
-      try {
-        localStorage.setItem(THEME_STORAGE_KEY, valid);
-      } catch {
-        // Ignore storage errors
-      }
+    }
+    try {
+      localStorage.setItem(THEME_STORAGE_KEY, valid);
+    } catch {
+      // Ignore storage errors
     }
     if (btn) {
       btn.textContent = labels[valid];
@@ -207,11 +202,11 @@ export function initThemeToggle(btn, { compact = false } = {}) {
     }
   }
 
-  let initial = "system";
+  let initial = "dark";
   try {
-    initial = localStorage.getItem(THEME_STORAGE_KEY) || "system";
+    initial = localStorage.getItem(THEME_STORAGE_KEY) || "dark";
   } catch {
-    initial = "system";
+    initial = "dark";
   }
   applyTheme(initial);
 
