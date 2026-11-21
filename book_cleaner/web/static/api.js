@@ -169,27 +169,31 @@ export function wireTwoStepAction(btn, confirmLabel, onConfirm, timeoutMs = 3000
   });
 }
 
-const THEME_STORAGE_KEY = "book_cleaner_theme";
-const THEME_CYCLE = ["dark", "light", "system"];
+const THEME_STORAGE_KEY = "superscanner_theme_v2";
+const THEME_CYCLE = ["light", "dark", "system"];
 const THEME_LABELS = {
-  dark: "暗房模式",
-  light: "日光浅色",
+  light: "日光工坊",
+  dark: "纯黑暗房",
   system: "跟随系统",
 };
 const THEME_COMPACT_LABELS = {
-  dark: "暗房",
   light: "日光",
+  dark: "暗房",
   system: "系统",
 };
 
 export function initThemeToggle(btn, { compact = false } = {}) {
   const labels = compact ? THEME_COMPACT_LABELS : THEME_LABELS;
   function applyTheme(mode) {
-    const valid = THEME_CYCLE.includes(mode) ? mode : "dark";
+    const valid = THEME_CYCLE.includes(mode) ? mode : "light";
     if (valid === "system") {
       delete document.documentElement.dataset.theme;
     } else {
       document.documentElement.dataset.theme = valid;
+    }
+    const metaScheme = document.querySelector('meta[name="color-scheme"]');
+    if (metaScheme) {
+      metaScheme.setAttribute("content", valid === "system" ? "light dark" : valid);
     }
     try {
       localStorage.setItem(THEME_STORAGE_KEY, valid);
@@ -197,22 +201,29 @@ export function initThemeToggle(btn, { compact = false } = {}) {
       // Ignore storage errors
     }
     if (btn) {
-      btn.textContent = labels[valid];
       btn.dataset.themeMode = valid;
+      const fullLabel = THEME_LABELS[valid] || labels[valid];
+      btn.title = `当前外观：${fullLabel}（点击切换）`;
+      btn.setAttribute("aria-label", `切换外观（当前：${fullLabel}）`);
+      if (btn.dataset.iconOnly !== "1") {
+        const labelNode = btn.querySelector("[data-theme-label]");
+        if (labelNode) labelNode.textContent = labels[valid];
+        else btn.textContent = labels[valid];
+      }
     }
   }
 
-  let initial = "dark";
+  let initial = "light";
   try {
-    initial = localStorage.getItem(THEME_STORAGE_KEY) || "dark";
+    initial = localStorage.getItem(THEME_STORAGE_KEY) || "light";
   } catch {
-    initial = "dark";
+    initial = "light";
   }
   applyTheme(initial);
 
   if (btn) {
     btn.addEventListener("click", () => {
-      const cur = btn.dataset.themeMode || "system";
+      const cur = btn.dataset.themeMode || "light";
       const next = THEME_CYCLE[(THEME_CYCLE.indexOf(cur) + 1) % THEME_CYCLE.length];
       applyTheme(next);
     });

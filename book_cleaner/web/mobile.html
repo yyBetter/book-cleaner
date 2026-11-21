@@ -1,50 +1,52 @@
 <!DOCTYPE html>
-<html lang="zh-CN" data-theme="dark">
+<html lang="zh-CN" data-theme="light">
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
-  <meta name="color-scheme" content="dark light">
+  <meta name="color-scheme" content="light dark">
+  <script>
+    try {
+      var m = localStorage.getItem("superscanner_theme_v2") || "light";
+      document.documentElement.dataset.theme = m === "system" ? "" : m;
+      if (m === "system") delete document.documentElement.dataset.theme;
+      var meta = document.querySelector('meta[name="color-scheme"]');
+      if (meta) meta.setAttribute("content", m === "system" ? "light dark" : m);
+    } catch (_) {}
+  </script>
   <title>超级扫描仪 · 手机光学采集端</title>
   <link rel="stylesheet" href="/static/styles.css">
 </head>
 <body>
   <main class="mobile-app">
+    <!-- Floating Apple Studio Glass Top Pill -->
     <header class="mobile-topbar">
-      <div class="toolbar-between" style="flex-wrap:nowrap;">
-        <div style="min-width:0;">
-          <div class="muted-note">超级扫描仪 · 手机光学采集端</div>
-          <h1 id="mobileBookTitle" style="margin:1px 0 0;font-size:15.5px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">加载书目中...</h1>
+      <div class="mobile-top-pill">
+        <div class="mobile-book-pill-row">
+          <h1 id="mobileBookTitle" class="mobile-book-title-hidden">加载书目中...</h1>
+          <select id="mobileBookSelect" class="mobile-book-select" aria-label="选择当前书目"></select>
+          <span class="mobile-pill-sep" aria-hidden="true">·</span>
+          <span id="mobilePageCountPill" class="mobile-page-count">0 页</span>
         </div>
-        <div class="mobile-header-actions">
-          <button id="mobileThemeBtn" type="button" class="btn btn-compact" aria-label="切换暗房防反光模式">暗房</button>
-          <span id="mobilePageCountPill" class="pill pill-ok">0 页</span>
+        <div class="mobile-top-actions">
+          <label class="toggle-item toggle-compact" title="双页自动拆分左右单页">
+            <input id="mobileSplitSpreadChk" class="toggle-switch" type="checkbox">
+            <span>拆单</span>
+          </label>
+          <button id="mobileThemeBtn" type="button" class="mobile-icon-btn" data-icon-only="1" aria-label="切换外观模式" title="切换外观">
+            <svg class="icon icon-sm" viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="4"/><path d="M12 2v2"/><path d="M12 20v2"/><path d="m4.93 4.93 1.41 1.41"/><path d="m17.66 17.66 1.41 1.41"/><path d="M2 12h2"/><path d="M20 12h2"/><path d="m6.34 17.66-1.41 1.41"/><path d="m19.07 4.93-1.41 1.41"/></svg>
+          </button>
         </div>
-      </div>
-      <div class="toolbar-row" style="flex-wrap:nowrap;">
-        <select id="mobileBookSelect" class="book-select" style="flex:1;min-width:0;"></select>
-        <label class="toggle-item toggle-compact">
-          <input id="mobileSplitSpreadChk" class="toggle-switch" type="checkbox">
-          <span>双页拆单</span>
-        </label>
       </div>
     </header>
 
-    <!-- Secure context live Android Chrome studio (USB 127.0.0.1 or Wi-Fi HTTPS) -->
+    <!-- Full-bleed Live Android Chrome Viewfinder (USB 127.0.0.1 or Wi-Fi HTTPS) -->
     <section id="mobileLiveCard" class="mobile-stage-live hidden">
-      <div class="mobile-status-strip">
-        <span id="mobileZeroStoragePill" class="pill pill-ok">0存储直传</span>
-        <div class="toolbar-row" style="gap:6px;flex-wrap:nowrap;">
-          <span id="mobileCaptureModeBadge" class="pill">检测静帧...</span>
-          <span id="mobileQueueBadge" class="pill">待传 0</span>
-        </div>
-      </div>
-
       <div class="viewport-box mobile-viewport">
         <video id="mobileVideo" autoplay playsinline muted></video>
         <div class="optical-ruler-top" aria-hidden="true"></div>
         <div class="optical-ruler-left" aria-hidden="true"></div>
-        <div class="thumb-zone-left">压书区<br>自动擦除</div>
-        <div class="thumb-zone-right">压书区<br>自动擦除</div>
+        <div class="thumb-zone-left"><span class="thumb-zone-tag">压书区</span></div>
+        <div class="thumb-zone-right"><span class="thumb-zone-tag">压书区</span></div>
         <div id="mobileCenterGuide" class="center-clear-guide">
           <span class="reticle-corner tl" aria-hidden="true"></span>
           <span class="reticle-corner tr" aria-hidden="true"></span>
@@ -53,49 +55,64 @@
         </div>
         <div id="mobileShutterFlash" class="shutter-flash" aria-hidden="true"></div>
         <div class="settle-meter"><div id="mobileSettleFill" class="settle-meter-fill"></div></div>
-        <div class="hud-overlay">
-          <span id="mobileSmartHud">压书自动抓拍：就绪</span>
-          <span id="mobileResHud">-</span>
+
+        <!-- Subtle Frosted Telemetry Badges Floating Inside Stage -->
+        <div class="mobile-hud-stack">
+          <div class="mobile-glass-chip">
+            <span id="mobileZeroStoragePill" class="mobile-chip-item is-ok">0存储直传</span>
+            <span class="mobile-pill-sep" aria-hidden="true">·</span>
+            <span id="mobileCaptureModeBadge" class="mobile-chip-item">检测静帧</span>
+            <span class="mobile-pill-sep" aria-hidden="true">·</span>
+            <span id="mobileQueueBadge" class="mobile-chip-item">待传 0</span>
+          </div>
+          <div class="mobile-glass-chip mobile-hud-sub">
+            <span id="mobileSmartHud">压书自动抓拍：就绪</span>
+            <span id="mobileResHud" class="mono"></span>
+          </div>
         </div>
       </div>
     </section>
 
-    <!-- Plain-HTTP fallback when browser stream is unavailable -->
+    <!-- Plain-HTTP Fallback when Browser Stream is Unavailable -->
     <section id="mobileNativeCard" class="card mobile-native-fallback">
-      <div id="mobileContextNotice" class="muted-note" style="margin-bottom:10px;">
-        当前为普通局域网 HTTP 备用模式（系统相机可能会生成临时相册文件）。建议使用 Android USB 直连或 Windows HTTPS 模式解锁「手机 0 存储」内存直传。
+      <div class="mobile-fallback-mark" aria-hidden="true">
+        <svg class="icon icon-lg" viewBox="0 0 24 24"><path d="M14.5 4h-5L7 7H4a2 2 0 0 0-2 2v9a2 2 0 0 0 2 2h16a2 2 0 0 0 2-2V9a2 2 0 0 0-2-2h-3l-2.5-3z"/><circle cx="12" cy="13" r="3"/></svg>
       </div>
-      <label class="btn btn-shutter mobile-shutter-big" style="cursor:pointer;">
-        <span>备用：调用系统相机拍一页</span>
+      <div class="mobile-fallback-title">局域网相机备用拍摄模式</div>
+      <div id="mobileContextNotice" class="muted-note">
+        当前为普通局域网 HTTP 模式（系统相机可能会生成临时相册文件）。建议使用 Android USB 直连或 Windows HTTPS 模式解锁「手机 0 存储」内存直传。
+      </div>
+      <label class="btn btn-primary btn-shutter-pill mobile-shutter-big" style="cursor:pointer;">
+        <span>调用系统相机拍一页</span>
         <input id="mobileNativeCameraInput" type="file" accept="image/*" capture="environment" class="hidden">
       </label>
     </section>
 
+    <!-- Floating QA Ticker Above Bottom Camera Deck -->
     <div id="mobileStatusBanner" class="mobile-qa-ticker">
-      <span class="muted-note" style="flex:none;">质检</span>
-      <span id="mobileQaResult" style="overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">准备就绪，双手可压住左右蓝区翻拍</span>
+      <span class="mobile-qa-dot" aria-hidden="true"></span>
+      <span id="mobileQaResult" style="overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">准备就绪，双手可轻压左右边缘翻拍</span>
     </div>
 
+    <!-- Apple Camera Frosted Light Bottom Deck -->
     <div class="mobile-deck">
       <div class="mobile-deck-side">
-        <button id="mobileUndoBtn" type="button" class="btn btn-sm btn-warn">
-          <svg class="icon icon-sm" viewBox="0 0 24 24" aria-hidden="true"><path d="M3 7v6h6"/><path d="M21 17a9 9 0 0 0-9-9 9 9 0 0 0-6 2.3L3 13"/></svg>
+        <button id="mobileUndoBtn" type="button" class="mobile-action-ghost" aria-label="撤销上一张">
+          <svg class="icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M3 7v6h6"/><path d="M21 17a9 9 0 0 0-9-9 9 9 0 0 0-6 2.3L3 13"/></svg>
           <span>撤销</span>
         </button>
       </div>
 
       <button id="mobileLiveShutterBtn" type="button" class="mobile-shutter-ring" aria-label="手动补拍一页（内存直传）" title="手动补拍一页">
-        <span class="mobile-shutter-core">
-          <svg class="icon" viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="4"/></svg>
-        </span>
+        <span class="mobile-shutter-core"></span>
       </button>
 
       <div class="mobile-deck-side is-right">
-        <button id="mobileTorchBtn" type="button" class="btn btn-sm hidden">
-          <svg class="icon icon-sm" viewBox="0 0 24 24" aria-hidden="true"><polygon points="13 2 3 14 12 14 11 22 21 10 12 10 13 2"/></svg>
+        <button id="mobileTorchBtn" type="button" class="mobile-action-ghost hidden" aria-label="开关补光灯">
+          <svg class="icon" viewBox="0 0 24 24" aria-hidden="true"><polygon points="13 2 3 14 12 14 11 22 21 10 12 10 13 2"/></svg>
           <span>补光</span>
         </button>
-        <label class="toggle-item toggle-compact" title="翻页稳定自动抓拍">
+        <label class="mobile-auto-pill" title="翻页稳定自动抓拍">
           <input id="mobileAutoTriggerChk" class="toggle-switch" type="checkbox" checked>
           <span>自动</span>
         </label>

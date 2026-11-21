@@ -161,7 +161,7 @@ export function createCaptureController(state, callbacks) {
     recentStrip.replaceChildren();
     if (!state.recentCaptured.length) {
       recentStrip.appendChild(
-        el("div", { class: "muted-note", style: "padding:8px 0;", text: "暂无本轮拍摄记录（支持拍照、拖拽或选择文件）" })
+        el("div", { class: "muted-note filmstrip-empty", text: "拍完自动生成底片缩略图 · 支持拖拽或点击上传入库" })
       );
       return;
     }
