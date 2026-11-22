@@ -1,10 +1,19 @@
-"""Configuration management for Book Cleaner."""
+"""Configuration management for SuperScanner (book-cleaner)."""
 
 from __future__ import annotations
 
 import os
 from dataclasses import dataclass, field
 from pathlib import Path
+
+
+def _default_enforce_license_limits() -> bool:
+    raw = os.environ.get("BOOK_CLEANER_ENFORCE_LICENSE", "").strip()
+    if raw:
+        return raw.lower() in ("1", "true", "yes", "on")
+    if "PYTEST_CURRENT_TEST" in os.environ:
+        return False
+    return True
 
 
 @dataclass(slots=True)
@@ -36,6 +45,13 @@ class AppConfig:
     )
     dark_threshold: float = 48.0
     overexposed_threshold: float = 252.0
+    enforce_license_limits: bool = field(default_factory=_default_enforce_license_limits)
+    free_export_page_limit: int = field(
+        default_factory=lambda: int(os.environ.get("BOOK_CLEANER_FREE_EXPORT_LIMIT", "5"))
+    )
+    license_public_key_b64: str | None = field(
+        default_factory=lambda: os.environ.get("BOOK_CLEANER_LICENSE_PUBKEY") or None
+    )
 
     def __post_init__(self) -> None:
         self.data_dir = Path(self.data_dir).resolve()

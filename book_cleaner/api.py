@@ -23,6 +23,11 @@ from book_cleaner.android_adb import get_adb_status, setup_adb_reverse
 from book_cleaner.config import AppConfig
 from book_cleaner.db import CATBOOST_BATCH_RULES, Database
 from book_cleaner.demo_generator import generate_demo_pages
+from book_cleaner.licensing import (
+    evaluate_stored_license,
+    get_machine_code,
+    verify_license_token,
+)
 from book_cleaner.pipeline.deepseek_addon import DEFAULT_HF_REPO
 from book_cleaner.pipeline.excel_exporter import read_headers_from_xlsx, read_workbook_sheets_from_xlsx
 from book_cleaner.pipeline.llm_clean import (
@@ -176,6 +181,10 @@ class LLMTestRequest(BaseModel):
     strict_offline: bool | None = None
 
 
+class LicenseActivateRequest(BaseModel):
+    license_key: str = Field(..., min_length=8, max_length=4096)
+
+
 # ----------------------------------------------------------------------
 # LAN Helpers
 # ----------------------------------------------------------------------
@@ -309,7 +318,7 @@ def create_app(
             coordinator.stop()
             db.close()
 
-    app = FastAPI(title="Book Cleaner Workbench", version=__version__, lifespan=lifespan)
+    app = FastAPI(title="超级扫描仪 · SuperScanner", version=__version__, lifespan=lifespan)
     app.state.config = cfg
     app.state.db = db
     app.state.storage = storage
@@ -1190,5 +1199,31 @@ def create_app(
                 "latency_ms": 0,
             }
         return test_llm_connection(cfg_llm)
+
+    @app.get("/api/license")
+    def get_license_status() -> dict[str, Any]:
+        st = evaluate_stored_license(db, cfg)
+        return {**st.to_dict(), "enforce_license_limits": cfg.enforce_license_limits}
+
+    @app.post("/api/license/activate")
+    def activate_license(body: LicenseActivateRequest) -> dict[str, Any]:
+        token = body.license_key.strip()
+        host_mc = get_machine_code()
+        st = verify_license_token(
+            token,
+            expected_machine_code=host_mc,
+            public_key_b64=cfg.license_public_key_b64,
+            free_export_page_limit=cfg.free_export_page_limit,
+        )
+        if not st.valid or not st.active:
+            raise HTTPException(status_code=400, detail=st.status_message)
+        db.update_settings({"license": {"license_key": token}})
+        return {**st.to_dict(), "enforce_license_limits": cfg.enforce_license_limits}
+
+    @app.delete("/api/license")
+    def deactivate_license() -> dict[str, Any]:
+        db.update_settings({"license": {"license_key": ""}})
+        st = evaluate_stored_license(db, cfg)
+        return {**st.to_dict(), "enforce_license_limits": cfg.enforce_license_limits}
 
     return app

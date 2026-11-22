@@ -606,12 +606,16 @@ export function createReviewAndPipelineController(state, callbacks) {
 
       if (isExport) {
         exportCount += 1;
+        const p = j.params || {};
+        const pagesTxt = p.limited_by_license
+          ? `${p.exported_page_count || j.total_items}/${p.original_page_count || j.total_items} 页（体验版限前${p.free_export_page_limit || 5}页）`
+          : String(j.total_items);
         exportJobsBody.appendChild(
           el("tr", {}, [
             el("td", { text: `#${j.id}` }),
-            el("td", { text: (j.params && j.params.format) || j.job_type }),
+            el("td", { text: p.format || j.job_type }),
             el("td", { text: j.status }),
-            el("td", { text: String(j.total_items) }),
+            el("td", { text: pagesTxt }),
             el("td", {}, [downloadBtn]),
           ])
         );
@@ -1158,7 +1162,15 @@ export function createReviewAndPipelineController(state, callbacks) {
             method: "POST",
             body: payload,
           });
-          showToast(`导出任务 #${res.job.id} 已加入队列`, "ok");
+          const p = (res.job && res.job.params) || {};
+          if (p.limited_by_license) {
+            showToast(
+              `免费体验版单次导出前 ${p.free_export_page_limit || 5} 页（本次 ${p.exported_page_count}/${p.original_page_count} 页），点击右上角激活解锁全量导出`,
+              "warn"
+            );
+          } else {
+            showToast(`导出任务 #${res.job.id} 已加入队列`, "ok");
+          }
           setTimeout(refreshJobs, 450);
         } catch (err) {
           showToast(err.message, "danger");

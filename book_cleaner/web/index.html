@@ -13,7 +13,7 @@
       if (meta) meta.setAttribute("content", m === "system" ? "light dark" : m);
     } catch (_) {}
   </script>
-  <title>超级扫描仪 · 智能纸质书籍光学采集与清洗工作台</title>
+  <title>超级扫描仪 · SuperScanner — 本地离线纸质资料与多表批次数字化工作台</title>
   <link rel="stylesheet" href="/static/styles.css">
 </head>
 <body>
@@ -25,7 +25,7 @@
           <div class="brand-badge" aria-hidden="true">
             <svg class="icon" viewBox="0 0 24 24"><circle cx="12" cy="12" r="9"/><path d="M14.31 8l5.74 9.94"/><path d="M9.69 8h11.48"/><path d="M7.38 12l5.74-9.94"/><path d="M9.69 16L3.95 6.06"/><path d="M14.31 16H2.83"/><path d="M16.62 12l-5.74 9.94"/></svg>
           </div>
-          <h1 class="brand-title">超级扫描仪</h1>
+          <h1 class="brand-title">超级扫描仪 <span class="brand-sub">SuperScanner</span></h1>
         </div>
 
         <div class="book-switcher-group">
@@ -41,6 +41,10 @@
         <span id="pipelinePill" class="pill pill-ok"><span class="dot"></span><span id="pipelinePillText">就绪</span></span>
         <span class="topbar-sep" aria-hidden="true"></span>
         <span id="activeOcrPill" class="pill" title="当前生效的 OCR 识别引擎">RapidOCR 离线</span>
+        <button id="openLicenseBtn" type="button" class="btn btn-sm btn-ghost license-topbar-btn" title="查看本机机器码与离线激活授权">
+          <span id="licenseStatusDot" class="license-dot" aria-hidden="true"></span>
+          <span id="licenseBtnText">免费体验版 · 激活</span>
+        </button>
         <button id="openSettingsBtn" type="button" class="btn btn-sm btn-ghost">
           <svg class="icon icon-sm" viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 1 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 1 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 1 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 1 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1Z"/></svg>
           <span>OCR 设置</span>
@@ -625,7 +629,7 @@
           <div class="pack-topbar">
             <div class="toolbar-row">
               <span class="pack-bar-label">模板包</span>
-              <select id="excelTemplateSelect" class="book-select" style="max-width:270px;"></select>
+              <select id="excelTemplateSelect" class="book-select" style="max-width:290px;"></select>
               <label class="btn btn-sm" style="cursor:pointer;">
                 <span>导入多 Sheet 模板 (.xlsx)</span>
                 <input id="importXlsxHeaderInput" type="file" accept=".xlsx" class="hidden">
@@ -639,6 +643,11 @@
               <button id="refreshMatchBtn" type="button" class="btn btn-sm">重新匹配</button>
               <button id="dcExportXlsxBtn" type="button" class="btn btn-primary btn-sm">导出多 Sheet Excel (.xlsx)</button>
             </div>
+          </div>
+
+          <div id="packScenarioBar" class="pack-scenario-bar">
+            <div class="pack-preset-pills" id="packPresetPills" aria-label="快捷切换内置商业样板模板包"></div>
+            <div id="packScenarioDesc" class="muted-note pack-scenario-desc">内置三大商业样板包，开箱即懂，也可随时自定义或导入自有 .xlsx 模板</div>
           </div>
 
           <!-- Mode A: 3-Column Visual Sheet Sorting & Field Alignment Workbench -->
@@ -743,6 +752,14 @@
 
       <!-- TAB 5: ASYMMETRIC EXPORT CENTER -->
       <section id="tab-export" class="tab-panel tab-panel-scroll scroller" role="tabpanel" aria-labelledby="tabBtn-export">
+        <div id="exportLicenseBanner" class="license-export-banner hidden" role="status" aria-live="polite">
+          <div class="license-export-banner-text">
+            <strong>免费体验版提示</strong>
+            <span id="exportLicenseBannerMsg">免费体验版单次导出前 5 页，输入离线激活码解锁不限页与多目标 CatBoost 全量导出</span>
+          </div>
+          <button id="exportUnlockBtn" type="button" class="btn btn-sm btn-primary">输入离线激活码</button>
+        </div>
+
         <div class="export-hero-grid">
           <!-- Featured Multi-Sheet Excel Hero -->
           <div class="card card-highlight" style="display:flex;flex-direction:column;justify-content:space-between;gap:12px;">
@@ -1010,17 +1027,22 @@
   <dialog id="newTemplateDialog" closedby="any" aria-labelledby="newTemplateTitle">
     <div class="dialog-inner">
       <div class="dialog-head">
-        <h2 id="newTemplateTitle">新建 Excel 清洗模板</h2>
+        <h2 id="newTemplateTitle">新建多 Sheet 清洗模板包</h2>
         <button type="button" class="btn btn-sm" data-close-dialog="newTemplateDialog">关闭</button>
       </div>
       <form id="newTemplateForm">
+        <div class="field-row">
+          <label for="newTemplatePresetSelect">起步商业样板（10 秒对号入座）</label>
+          <select id="newTemplatePresetSelect" class="input"></select>
+          <div id="newTemplatePresetHint" class="muted-note" style="margin-top:4px;"></div>
+        </div>
         <div class="field-row">
           <label for="newTemplateNameInput">模板名称</label>
           <input id="newTemplateNameInput" class="input" type="text" required placeholder="例如：设备参数台账清洗模板">
         </div>
         <div class="field-row">
-          <label for="newTemplateDescInput">用途备注（可选）</label>
-          <input id="newTemplateDescInput" class="input" type="text" placeholder="基于当前列配置另存为新模板">
+          <label for="newTemplateDescInput">适用场景说明（可选）</label>
+          <input id="newTemplateDescInput" class="input" type="text" placeholder="基于所选商业样板复制子表结构与映射规则">
         </div>
         <div class="dialog-actions">
           <button type="button" class="btn" data-close-dialog="newTemplateDialog">取消</button>
@@ -1131,6 +1153,52 @@
         <div><kbd class="kbd">A</kbd></div><div>复核界面保存当前文本并一键通过</div>
         <div><kbd class="kbd">Ctrl+S</kbd></div><div>校对框内直接保存文本修订</div>
         <div><kbd class="kbd">?</kbd></div><div>打开 / 关闭本快捷键指南</div>
+      </div>
+    </div>
+  </dialog>
+
+  <!-- Native light-dismiss Offline License Dialog -->
+  <dialog id="licenseDialog" closedby="any" aria-labelledby="licenseDialogTitle">
+    <div class="dialog-inner">
+      <div class="dialog-head">
+        <h2 id="licenseDialogTitle">离线授权与激活 · SuperScanner</h2>
+        <button type="button" class="btn btn-sm" data-close-dialog="licenseDialog">关闭</button>
+      </div>
+      <div class="stack-sm">
+        <div class="license-status-card">
+          <div class="toolbar-between" style="gap:10px;">
+            <span id="licenseTierBadge" class="pill pill-warn">免费体验版</span>
+            <span id="licenseExpiryText" class="muted-note">单次最多导出前 5 页</span>
+          </div>
+          <div id="licenseStatusDesc" class="muted-note" style="margin-top:8px;">
+            免费体验版支持完整拍照、图像清洗、复核对比与模板分拣预览；导出阶段限制每次前 5 页。
+          </div>
+          <div id="licenseNoteText" class="muted-note hidden" style="margin-top:4px;"></div>
+          <div class="muted-note" style="margin-top:6px;">
+            采用纯本地 Ed25519 非对称公钥验签，全程无需联网校验，严守涉密离线红线。
+          </div>
+        </div>
+
+        <div class="field-row" style="margin-bottom:0;">
+          <label for="licenseMachineCode">本机硬件机器码（复制发给作者即可换取离线激活码）</label>
+          <div class="license-code-row">
+            <code id="licenseMachineCode" class="license-code-value mono">正在读取本机指纹...</code>
+            <button id="copyMachineCodeBtn" type="button" class="btn btn-sm">一键复制</button>
+          </div>
+        </div>
+
+        <form id="licenseActivateForm" class="stack-sm">
+          <div class="field-row" style="margin-bottom:0;">
+            <label for="licenseKeyInput">输入离线激活码</label>
+            <textarea id="licenseKeyInput" class="input mono" rows="3" placeholder="粘贴以 SS1. 开头的完整离线激活码..."></textarea>
+          </div>
+          <div id="licenseFeedback" class="muted-note" style="min-height:18px;"></div>
+          <div class="dialog-actions" style="margin-top:4px;">
+            <button id="deactivateLicenseBtn" type="button" class="btn btn-danger-ghost hidden">清除当前授权</button>
+            <button type="button" class="btn" data-close-dialog="licenseDialog">取消</button>
+            <button id="activateLicenseSubmitBtn" type="submit" class="btn btn-primary">立即离线激活</button>
+          </div>
+        </form>
       </div>
     </div>
   </dialog>

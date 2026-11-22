@@ -68,6 +68,47 @@ export function createDataCleanController(state, callbacks) {
   const packWorkbench = document.getElementById("packWorkbench");
   const legacyWorkbench = document.getElementById("legacyCleanWorkbench");
   const coverageBadge = document.getElementById("packCoverageBadge");
+  const packPresetPills = document.getElementById("packPresetPills");
+  const packScenarioDesc = document.getElementById("packScenarioDesc");
+  const newTemplatePresetSelect = document.getElementById("newTemplatePresetSelect");
+  const newTemplatePresetHint = document.getElementById("newTemplatePresetHint");
+
+  const PRESET_SHORT_LABELS = {
+    "多表批次记录与多目标 CatBoost 模板包": "制造 / 批次记录 CatBoost (5表)",
+    "实验室检测与研发实验本模板包": "实验室检测 / 研发实验本 (4表)",
+    "财务凭证与合同台账模板包": "财务凭证 / 合同台账 (4表)",
+  };
+
+  function renderScenarioBar() {
+    if (packScenarioDesc) {
+      packScenarioDesc.textContent =
+        (activeTemplate && activeTemplate.description) ||
+        "点击上方模板下拉或左侧样板快速切换，10 秒对号入座";
+    }
+    if (!packPresetPills) return;
+    packPresetPills.replaceChildren();
+    const packTpls = templates.filter((t) => Array.isArray(t.sheets) && t.sheets.length > 0);
+    for (const t of packTpls) {
+      const isAct = activeTemplate && activeTemplate.id === t.id;
+      const shortLabel = PRESET_SHORT_LABELS[t.name] || `${t.name} (${t.sheets.length}表)`;
+      packPresetPills.appendChild(
+        el("button", {
+          type: "button",
+          class: `btn btn-compact ${isAct ? "btn-primary" : "btn-soft"}`,
+          title: t.description || t.name,
+          text: shortLabel,
+          onclick: () => {
+            activeTemplate = t;
+            tplSelect.value = String(t.id);
+            exportTplSelect.value = String(t.id);
+            selectedDrawerId = null;
+            applyTemplateToForm(t);
+            refreshPreview();
+          },
+        })
+      );
+    }
+  }
 
   // Multi-sheet 3-col refs
   const packSheetList = document.getElementById("packSheetList");
@@ -150,6 +191,7 @@ export function createDataCleanController(state, callbacks) {
       }
       schemaDraftSheet = null;
     }
+    renderScenarioBar();
     renderExportPanel();
   }
 
@@ -1443,8 +1485,45 @@ export function createDataCleanController(state, callbacks) {
     }
   });
 
+  function populateNewTemplatePresets() {
+    if (!newTemplatePresetSelect) return;
+    newTemplatePresetSelect.replaceChildren();
+    const packs = templates.filter((t) => Array.isArray(t.sheets) && t.sheets.length > 0);
+    for (const t of packs) {
+      const shortLabel = PRESET_SHORT_LABELS[t.name] || t.name;
+      newTemplatePresetSelect.appendChild(
+        el("option", { value: String(t.id), text: `${shortLabel}` })
+      );
+    }
+    newTemplatePresetSelect.appendChild(
+      el("option", { value: "__blank__", text: "空白单子表起步（仅保留批次号 + 目标 y）" })
+    );
+    if (activeTemplate && isPackTemplate(activeTemplate)) {
+      newTemplatePresetSelect.value = String(activeTemplate.id);
+    }
+    updateNewTemplatePresetHint();
+  }
+
+  function updateNewTemplatePresetHint() {
+    if (!newTemplatePresetSelect || !newTemplatePresetHint) return;
+    const val = newTemplatePresetSelect.value;
+    if (val === "__blank__") {
+      newTemplatePresetHint.textContent = "新建仅含 1 张「批次信息与结果_Y」的精简多表骨架，适合从零自由添加子表。";
+      return;
+    }
+    const found = templates.find((t) => String(t.id) === val);
+    newTemplatePresetHint.textContent = found
+      ? found.description || `复制「${found.name}」的 ${(found.sheets || []).length} 张子表结构与字段映射规则。`
+      : "";
+  }
+
+  if (newTemplatePresetSelect) {
+    newTemplatePresetSelect.addEventListener("change", updateNewTemplatePresetHint);
+  }
+
   document.getElementById("newTemplateBtn").addEventListener("click", () => {
     document.getElementById("newTemplateForm").reset();
+    populateNewTemplatePresets();
     newTemplateDialog.showModal();
   });
 
@@ -1453,28 +1532,40 @@ export function createDataCleanController(state, callbacks) {
     const submitBtn = e.target.querySelector('button[type="submit"]');
     await withButtonLoading(submitBtn, "创建中...", async () => {
       try {
+        const presetVal = newTemplatePresetSelect ? newTemplatePresetSelect.value : "";
+        const presetTpl =
+          presetVal && presetVal !== "__blank__"
+            ? templates.find((t) => String(t.id) === presetVal) || null
+            : null;
         const baseSheets =
-          activeTemplate && isPackTemplate(activeTemplate)
-            ? activeTemplate.sheets
-            : [
-                {
-                  sheet_id: "sheet_1",
-                  name: "批次信息与结果_Y",
-                  mode: "record",
-                  match_keywords: ["批次", "结果", "记录"],
-                  fields: [
-                    { key: "batch_id", name: "批次号", role: "meta_id", agg: "last", aliases: ["批号"] },
-                    { key: "record_date", name: "记录日期", role: "time_split", agg: "last", aliases: ["日期"] },
-                    { key: "y_output", name: "y_主产出", role: "target_y", agg: "last", aliases: ["产出", "效价"] },
-                  ],
-                },
-              ];
+          presetTpl && Array.isArray(presetTpl.sheets) && presetTpl.sheets.length > 0
+            ? JSON.parse(JSON.stringify(presetTpl.sheets))
+            : presetVal === "__blank__" || !(activeTemplate && isPackTemplate(activeTemplate))
+              ? [
+                  {
+                    sheet_id: "sheet_1",
+                    name: "批次信息与结果_Y",
+                    mode: "record",
+                    match_keywords: ["批次", "结果", "记录"],
+                    fields: [
+                      { key: "batch_id", name: "批次号", role: "meta_id", agg: "last", aliases: ["批号"] },
+                      { key: "record_date", name: "记录日期", role: "time_split", agg: "last", aliases: ["日期"] },
+                      { key: "y_output", name: "y_主产出", role: "target_y", agg: "last", aliases: ["产出", "效价"] },
+                    ],
+                  },
+                ]
+              : JSON.parse(JSON.stringify(activeTemplate.sheets));
+        const baseRules =
+          presetTpl && presetTpl.rules
+            ? { ...readFormRules(), ...presetTpl.rules }
+            : { ...readFormRules(), catboost_mode: true };
+        const descInputVal = document.getElementById("newTemplateDescInput").value.trim();
         const created = await apiJson("/api/excel-templates", {
           method: "POST",
           body: {
             name: document.getElementById("newTemplateNameInput").value,
-            description: document.getElementById("newTemplateDescInput").value,
-            rules: { ...readFormRules(), catboost_mode: true },
+            description: descInputVal || (presetTpl ? presetTpl.description : ""),
+            rules: baseRules,
             columns: editingColumns,
             sheets: baseSheets,
           },
@@ -1518,7 +1609,15 @@ export function createDataCleanController(state, callbacks) {
           method: "POST",
           body: { format: "xlsx", template_id: activeTemplate ? activeTemplate.id : null },
         });
-        showToast(`多 Sheet Excel 导出任务 #${res.job.id} 已启动，请稍候前往导出历史下载`, "ok");
+        const p = (res.job && res.job.params) || {};
+        if (p.limited_by_license) {
+          showToast(
+            `免费体验版单次导出前 ${p.free_export_page_limit || 5} 页（本次 ${p.exported_page_count}/${p.original_page_count} 页），点击右上角激活解锁不限页与 CatBoost 全量导出`,
+            "warn"
+          );
+        } else {
+          showToast(`多 Sheet Excel 导出任务 #${res.job.id} 已启动，请稍候前往导出历史下载`, "ok");
+        }
         callbacks.onExportTriggered();
       } catch (err) {
         showToast(err.message, "danger");

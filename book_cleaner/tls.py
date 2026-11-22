@@ -37,7 +37,7 @@ def ensure_lan_self_signed_cert(cert_dir: Path | str, lan_ip: str) -> tuple[Path
 
     subject = issuer = x509.Name(
         [
-            x509.NameAttribute(NameOID.ORGANIZATION_NAME, "Book Cleaner Local LAN"),
+            x509.NameAttribute(NameOID.ORGANIZATION_NAME, "SuperScanner Local LAN"),
             x509.NameAttribute(NameOID.COMMON_NAME, lan_ip or "localhost"),
         ]
     )
