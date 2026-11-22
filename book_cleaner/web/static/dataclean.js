@@ -345,7 +345,7 @@ export function createDataCleanController(state, callbacks) {
           `当前工作集：已自动分拣 ${cov.matched_pages}/${cov.total_pages} 页（待确认 ${cov.unassigned_pages} 页）` +
           ` · 纸面字段对齐率 ${cov.alignment_pct}% · 覆盖 ${cov.total_batches} 个批次 · 识别目标 y：${yList}`;
       } else {
-        exportCoverageSummary.textContent = `模板包已配置 ${sheetsMeta.length} 张子表；点击左侧「4 表格」或等待加载匹配预览。`;
+        exportCoverageSummary.textContent = `模板包已配置 ${sheetsMeta.length} 张子表；点击左侧「3 表格」或等待加载匹配预览。`;
       }
     }
   }

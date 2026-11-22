@@ -38,7 +38,7 @@
       <div class="topbar-controls">
         <button id="seedDemoBtn" type="button" class="btn btn-sm btn-ghost">演示样书</button>
         <span class="topbar-sep" aria-hidden="true"></span>
-        <span id="pipelinePill" class="pill pill-ok"><span class="dot"></span><span id="pipelinePillText">就绪</span></span>
+        <span id="pipelinePill" class="pill pill-ok is-clickable" role="button" tabindex="0" title="点击进入「2 复核」查看实时加工进度与页面核对"><span class="dot"></span><span id="pipelinePillText">就绪</span></span>
         <span class="topbar-sep" aria-hidden="true"></span>
         <span id="activeOcrPill" class="pill" title="当前生效的 OCR 识别引擎">RapidOCR 离线</span>
         <button id="openLicenseBtn" type="button" class="btn btn-sm btn-ghost license-topbar-btn" title="查看本机机器码与离线激活授权">
@@ -60,24 +60,19 @@
           <span class="tab-label">1 拍照</span>
           <span id="tabBadgeCapture" class="badge-count">0</span>
         </button>
-        <button id="tabBtn-pipeline" class="tab-btn" data-tab="pipeline" type="button" role="tab" aria-selected="false" tabindex="-1">
-          <svg class="icon icon-lg" viewBox="0 0 24 24" aria-hidden="true"><line x1="4" y1="7" x2="20" y2="7"/><circle cx="9" cy="7" r="2"/><line x1="4" y1="12" x2="20" y2="12"/><circle cx="15" cy="12" r="2"/><line x1="4" y1="17" x2="20" y2="17"/><circle cx="11" cy="17" r="2"/></svg>
-          <span class="tab-label">2 进度</span>
-          <span id="tabBadgePipeline" class="badge-count hidden">0</span>
-        </button>
         <button id="tabBtn-review" class="tab-btn" data-tab="review" type="button" role="tab" aria-selected="false" tabindex="-1">
           <svg class="icon icon-lg" viewBox="0 0 24 24" aria-hidden="true"><rect x="3" y="4" width="18" height="16" rx="2"/><line x1="12" y1="4" x2="12" y2="20"/></svg>
-          <span class="tab-label">3 复核</span>
+          <span class="tab-label">2 复核</span>
           <span id="tabBadgeReview" class="badge-count hidden">0</span>
         </button>
         <button id="tabBtn-dataclean" class="tab-btn" data-tab="dataclean" type="button" role="tab" aria-selected="false" tabindex="-1">
           <svg class="icon icon-lg" viewBox="0 0 24 24" aria-hidden="true"><rect x="3" y="3" width="18" height="18" rx="2"/><path d="M3 9h18"/><path d="M9 21V9"/></svg>
-          <span class="tab-label">4 表格</span>
+          <span class="tab-label">3 表格</span>
           <span id="tabBadgeDataclean" class="badge-count hidden">0</span>
         </button>
         <button id="tabBtn-export" class="tab-btn" data-tab="export" type="button" role="tab" aria-selected="false" tabindex="-1">
           <svg class="icon icon-lg" viewBox="0 0 24 24" aria-hidden="true"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
-          <span class="tab-label">5 导出</span>
+          <span class="tab-label">4 导出</span>
         </button>
       </nav>
 
@@ -382,170 +377,112 @@
         </div>
       </section>
 
-      <!-- TAB 2: FULL-VIEWPORT SPATIAL PIPELINE MONITOR & VISUAL X-RAY -->
-      <section id="tab-pipeline" class="tab-panel" role="tabpanel" aria-labelledby="tabBtn-pipeline">
-        <div class="pipe-shell">
-          <!-- Compact Unified Top Command Strip (~102px total) -->
-          <header class="pipe-header">
-            <div class="pipe-header-row">
-              <div class="pipe-hero-text">
-                <div class="toolbar-row" style="gap:10px;">
-                  <h2 id="pipelineHeroHeadline" class="pipe-hero-title">等待采集照片…</h2>
-                  <span id="globalProgressNote" class="pill">尚无页面</span>
-                </div>
-                <div id="pipelineHeroSub" class="pipe-hero-sub">拍完或拖入纸张后，后台自动切边展平、去阴影、离线识字并做质量分流。</div>
-              </div>
-              <div class="pipe-hero-actions">
-                <button id="openJobsDialogBtn" type="button" class="btn btn-sm">
-                  <span>批量任务</span>
-                  <span id="pipelineJobsCount" class="pill" style="padding:0 5px;">0</span>
-                </button>
-                <button id="retryFailedBtn" type="button" class="btn btn-sm btn-soft hidden">重试失败页</button>
-                <button id="pausePipelineBtn" type="button" class="btn btn-sm">暂停后台</button>
-                <button id="resumePipelineBtn" type="button" class="btn btn-sm hidden">恢复运行</button>
-                <button id="pipelineNextStepBtn" type="button" class="btn btn-primary btn-sm">去「1 拍照」开始采集 →</button>
-              </div>
-            </div>
-
-            <div class="pipe-stepper-row">
-              <button type="button" class="pipe-step-pill is-active" data-pipe-step-filter="ALL" title="拍照落盘并实时检测清晰度与重复帧">
-                <span class="pipeline-step-num">1</span>
-                <span class="pipe-step-body">
-                  <strong>拍照初检</strong>
-                  <span class="pipe-step-metrics"><strong id="kpiTotal">0</strong> 页 <span id="pipeStep1Meta" class="muted-note">· 等待入库</span></span>
-                </span>
-              </button>
-
-              <button type="button" class="pipe-step-pill" data-pipe-step-filter="PROCESSING" title="自动切边、弯页展平、去阴影漂白与擦手指">
-                <span class="pipeline-step-num">2</span>
-                <span class="pipe-step-body">
-                  <strong>图像清洗</strong>
-                  <span class="pipe-step-metrics"><strong id="kpiClean">0</strong> 排队 <span id="pipeStep2Meta" class="muted-note">· 已洗净 0 页</span></span>
-                </span>
-              </button>
-
-              <button type="button" class="pipe-step-pill" data-pipe-step-filter="PROCESSING" title="免费离线提取文字与表格并评估把握度">
-                <span class="pipeline-step-num">3</span>
-                <span class="pipe-step-body">
-                  <strong>离线识字</strong>
-                  <span class="pipe-step-metrics"><strong id="kpiOcr">0</strong> 排队 <span id="pipeStep3Meta" class="muted-note">· 已出字 0 页</span></span>
-                </span>
-              </button>
-
-              <button type="button" class="pipe-step-pill" data-pipe-step-filter="NEEDS_REVIEW" title="高把握直通；异常页标黄等您复核">
-                <span class="pipeline-step-num">4</span>
-                <span class="pipe-step-body">
-                  <strong>质检结论</strong>
-                  <span class="pipe-step-metrics">
-                    <span class="pipe-split-ok">合格 <strong id="kpiCompleted">0</strong></span>
-                    <span class="pipe-split-warn">· 待复核 <strong id="kpiReview">0</strong></span>
-                    <span class="pipe-split-fail">· 失败 <strong id="kpiFailed">0</strong></span>
-                  </span>
-                </span>
-              </button>
-            </div>
-
-            <div class="pipe-hairline-bar" aria-label="页面处理状态分布">
-              <div id="barDone" class="seg-done" style="width:0%"></div>
-              <div id="barProc" class="seg-proc" style="width:0%"></div>
-              <div id="barReview" class="seg-review" style="width:0%"></div>
-              <div id="barFailed" class="seg-fail" style="width:0%"></div>
-            </div>
-          </header>
-
-          <!-- Expansive 2-Column Workspace Stage (~740px tall at 1440x900) -->
-          <div class="pipe-stage">
-            <!-- Left: Spacious Interactive Photo Processing Feed -->
-            <div class="pipe-list-col">
-              <div class="pipe-list-toolbar">
-                <div class="toolbar-row">
-                  <strong style="font-size:13px;">每张照片的加工实况</strong>
-                  <span class="muted-note">点击照片，右侧查看原图与离线识别内容</span>
-                </div>
-                <div class="toolbar-row">
-                  <div class="filter-pills">
-                    <button class="btn btn-sm btn-primary is-active" data-pipe-filter="ALL" type="button">全部</button>
-                    <button class="btn btn-sm" data-pipe-filter="PROCESSING" type="button">加工中</button>
-                    <button class="btn btn-sm" data-pipe-filter="NEEDS_REVIEW" type="button">标黄待复核</button>
-                    <button class="btn btn-sm" data-pipe-filter="COMPLETED" type="button">已合格</button>
-                    <button class="btn btn-sm" data-pipe-filter="FAILED" type="button">失败</button>
-                  </div>
-                  <button id="refreshPipelinePagesBtn" type="button" class="btn btn-sm">刷新</button>
-                </div>
-              </div>
-              <div id="pipelinePagesList" class="pipe-list scroller"></div>
-            </div>
-
-            <!-- Right: Docked Visual X-Ray Inspector (Raw vs Clean + Merged Summary + Hero OCR Output) -->
-            <aside id="pipeXrayCol" class="pipe-xray-col">
-              <div class="pipe-xray-head">
-                <div class="toolbar-row" style="gap:8px;min-width:0;flex-wrap:wrap;">
-                  <strong id="pipeXrayTitle" style="font-size:14px;">请点击左侧照片查看加工详情</strong>
-                  <span id="pipeXrayVerdictPill" class="pipe-tag hidden"></span>
-                </div>
-                <div class="toolbar-row" style="gap:6px;flex:none;">
-                  <button id="pipeXrayRotLeftBtn" type="button" class="btn btn-compact" title="逆时针旋转 90° 并重新识字" disabled>左转</button>
-                  <button id="pipeXrayRotRightBtn" type="button" class="btn btn-compact" title="顺时针旋转 90° 并重新识字" disabled>右转</button>
-                  <button id="pipeXrayApproveBtn" type="button" class="btn btn-compact btn-primary" disabled>直接通过</button>
-                  <button id="pipeXrayJumpBtn" type="button" class="btn btn-compact" disabled>精校对比</button>
-                  <button id="pipeXrayDeleteBtn" type="button" class="btn btn-compact btn-danger-ghost" disabled>删废片</button>
-                </div>
-              </div>
-
-              <div id="pipeXrayCompare" class="pipe-xray-compare">
-                <div class="pipe-xray-frame">
-                  <div class="pipe-xray-frame-lbl">原图 (Raw)</div>
-                  <img id="pipeXrayRawImg" src="data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7" alt="原始拍照图">
-                </div>
-                <div class="pipe-xray-frame">
-                  <div class="pipe-xray-frame-lbl">洗净成片 (Clean)</div>
-                  <img id="pipeXrayCleanImg" src="data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7" alt="自动清洗成片">
-                </div>
-              </div>
-
-              <div id="pipeXrayTimeline" class="pipe-xray-body">
-                <div class="pack-empty-state">左侧选择任意一页照片后，此处将对比展示「原图 vs 洗净成片」，并将重点空间留给完整离线文字识别输出。</div>
-              </div>
-            </aside>
-          </div>
-        </div>
-      </section>
-
-      <!-- TAB 3: PRO LIGHTBOX REVIEW & COMPARISON -->
+      <!-- TAB 2: UNIFIED PIPELINE PROGRESS & OPTICAL SIDE-BY-SIDE PROOFREADING -->
       <section id="tab-review" class="tab-panel" role="tabpanel" aria-labelledby="tabBtn-review">
         <div class="review-workstation">
+          <!-- Zone A: Ultra-Compact Collapsible Progress Strip (~40px collapsed) -->
+          <div class="review-pipe-bar">
+            <details id="reviewPipeDetails" class="review-pipe-details">
+              <summary class="review-pipe-summary">
+                <span id="pipelineHeroHeadline" class="review-pipe-headline">等待采集照片…</span>
+                <span id="globalProgressNote" class="review-pipe-metrics">尚无页面</span>
+                <span class="review-pipe-cue">4 步明细</span>
+              </summary>
+              <div class="review-pipe-drawer">
+                <div class="review-pipe-drawer-inner">
+                  <div id="pipelineHeroSub" class="muted-note" style="margin-bottom:8px;">拍完或拖入纸张后，后台自动切边展平、去阴影、离线识字并做质量分流。</div>
+                  <div class="pipe-stepper-row">
+                    <button type="button" class="pipe-step-pill is-active" data-pipe-step-filter="ALL" title="查看全部入库页面">
+                      <span class="pipeline-step-num">1</span>
+                      <span class="pipe-step-body">
+                        <strong>拍照初检</strong>
+                        <span class="pipe-step-metrics"><strong id="kpiTotal">0</strong> 页 <span id="pipeStep1Meta" class="muted-note">· 等待入库</span></span>
+                      </span>
+                    </button>
+
+                    <button type="button" class="pipe-step-pill" data-pipe-step-filter="PROCESSING" title="查看正在清洗或排队的页面">
+                      <span class="pipeline-step-num">2</span>
+                      <span class="pipe-step-body">
+                        <strong>图像清洗</strong>
+                        <span class="pipe-step-metrics"><strong id="kpiClean">0</strong> 排队 <span id="pipeStep2Meta" class="muted-note">· 已洗净 0 页</span></span>
+                      </span>
+                    </button>
+
+                    <button type="button" class="pipe-step-pill" data-pipe-step-filter="PROCESSING" title="查看正在离线识字或排队的页面">
+                      <span class="pipeline-step-num">3</span>
+                      <span class="pipe-step-body">
+                        <strong>离线识字</strong>
+                        <span class="pipe-step-metrics"><strong id="kpiOcr">0</strong> 排队 <span id="pipeStep3Meta" class="muted-note">· 已出字 0 页</span></span>
+                      </span>
+                    </button>
+
+                    <button type="button" class="pipe-step-pill" data-pipe-step-filter="NEEDS_REVIEW" title="筛选标黄待复核或异常页面">
+                      <span class="pipeline-step-num">4</span>
+                      <span class="pipe-step-body">
+                        <strong>质检结论</strong>
+                        <span class="pipe-step-metrics">
+                          <span class="pipe-split-ok">合格 <strong id="kpiCompleted">0</strong></span>
+                          <span class="pipe-split-warn">· 待复核 <strong id="kpiReview">0</strong></span>
+                          <span class="pipe-split-fail">· 失败 <strong id="kpiFailed">0</strong></span>
+                        </span>
+                      </span>
+                    </button>
+                  </div>
+                </div>
+              </div>
+            </details>
+
+            <div class="review-pipe-actions">
+              <button id="retryFailedBtn" type="button" class="btn btn-compact btn-soft hidden">重试失败</button>
+              <button id="pausePipelineBtn" type="button" class="btn btn-compact">暂停后台</button>
+              <button id="resumePipelineBtn" type="button" class="btn btn-compact hidden">恢复运行</button>
+              <button id="openJobsDialogBtn" type="button" class="btn btn-compact">
+                <span>批量任务</span>
+                <span id="pipelineJobsCount" class="pill" style="padding:0 5px;">0</span>
+              </button>
+            </div>
+          </div>
+
+          <div class="pipe-hairline-bar" aria-label="页面处理状态分布">
+            <div id="barDone" class="seg-done" style="width:0%"></div>
+            <div id="barProc" class="seg-proc" style="width:0%"></div>
+            <div id="barReview" class="seg-review" style="width:0%"></div>
+            <div id="barFailed" class="seg-fail" style="width:0%"></div>
+          </div>
+
+          <!-- Zone B: Compact Unified Filter Toolbar -->
           <div class="review-toolbar">
             <div class="filter-pills">
-              <button class="btn btn-sm btn-primary is-active" data-filter="ALL" type="button">全部页面</button>
-              <button class="btn btn-sm" data-filter="NEEDS_REVIEW" type="button">需人工复核</button>
-              <button class="btn btn-sm" data-filter="READY" type="button">待终审</button>
+              <button class="btn btn-sm btn-primary is-active" data-filter="ALL" type="button">全部</button>
+              <button class="btn btn-sm" data-filter="PROCESSING" type="button">加工中</button>
+              <button class="btn btn-sm" data-filter="NEEDS_REVIEW" type="button">待复核</button>
+              <button class="btn btn-sm" data-filter="READY" type="button">待抽检</button>
               <button class="btn btn-sm" data-filter="APPROVED" type="button">已通过</button>
-              <button class="btn btn-sm" data-filter="FAILED" type="button">异常失败</button>
+              <button class="btn btn-sm" data-filter="FAILED" type="button">失败</button>
             </div>
             <div class="toolbar-row">
-              <select id="reviewQaFilter" class="book-select" style="min-width:125px;">
+              <select id="reviewQaFilter" class="book-select" style="min-width:118px;">
                 <option value="ALL">全部质检标签</option>
                 <option value="ANY_QA">任意告警页</option>
                 <option value="BLURRY">仅模糊告警</option>
                 <option value="DUPLICATE">仅疑似重复</option>
                 <option value="LOW_CONF">仅 OCR 低置信</option>
               </select>
-              <input id="reviewSearchInput" class="input" style="width:180px;padding:5px 9px;" type="search" placeholder="搜索正文关键词...">
-              <button id="deleteFlaggedBtn" type="button" class="btn btn-sm btn-danger-ghost" title="两步确认删除全部质检告警或失败的废片">一键清异常废片</button>
+              <input id="reviewSearchInput" class="input" style="width:156px;padding:4px 9px;" type="search" placeholder="搜索正文关键词...">
+              <button id="deleteFlaggedBtn" type="button" class="btn btn-sm btn-danger-ghost" title="两步确认删除全部质检告警或失败的废片">清异常废片</button>
               <button id="prevPageListBtn" type="button" class="btn btn-sm">上一组</button>
               <span id="pageListPagerInfo" class="muted-note mono">0 / 0</span>
               <button id="nextPageListBtn" type="button" class="btn btn-sm">下一组</button>
             </div>
           </div>
 
+          <!-- Zone C: 3-Column High-Efficiency Optical Proofreading Workbench -->
           <div class="review-layout">
-            <!-- Left Contact Sheet -->
+            <!-- Column 1: Slim Single-Column Contact Filmstrip -->
             <div class="review-rail">
-              <div class="toolbar-between" style="margin-bottom:8px;">
+              <div class="toolbar-between" style="margin-bottom:8px;padding:0 2px;">
                 <span class="muted-note" style="font-weight:700;">页面列表</span>
-                <div class="toolbar-row" style="gap:6px;">
-                  <button id="toggleMultiSelectBtn" type="button" class="btn btn-compact btn-soft">多选删废</button>
-                </div>
+                <button id="toggleMultiSelectBtn" type="button" class="btn btn-compact btn-soft">多选删废</button>
               </div>
               <div id="batchDeleteBar" class="batch-delete-bar hidden">
                 <button id="selectAllReviewBtn" type="button" class="btn btn-compact btn-soft">全选</button>
@@ -555,26 +492,40 @@
               <div id="reviewGallery" class="review-gallery scroller"></div>
             </div>
 
-            <!-- Center Darkroom Comparison Lightbox -->
+            <!-- Column 2: Full-Page HD Lightbox (Raw / Clean / Split + Zoom & OCR Bbox Sync) -->
             <div class="review-lightbox">
-              <div class="toolbar-between">
-                <strong id="reviewImageTitle" style="font-size:14px;">未选择页面</strong>
-                <div class="toolbar-row">
-                  <select id="recleanModeSelect" class="book-select" style="min-width:112px;">
+              <div class="review-stage-bar">
+                <div class="toolbar-row" style="gap:6px;min-width:0;">
+                  <strong id="reviewImageTitle" class="review-page-title">未选择页面</strong>
+                  <span id="reviewEnginePill" class="pipe-tag hidden"></span>
+                </div>
+                <div class="toolbar-row" style="gap:6px;flex-wrap:wrap;">
+                  <div class="segmented-bar" style="padding:2px;" role="group" aria-label="图像查看模式">
+                    <button type="button" class="seg-btn" data-img-mode="raw" style="padding:3px 9px;font-size:12px;">原图</button>
+                    <button type="button" class="seg-btn is-active" data-img-mode="clean" style="padding:3px 9px;font-size:12px;">成片</button>
+                    <button type="button" class="seg-btn" data-img-mode="split" style="padding:3px 9px;font-size:12px;">拉帘</button>
+                  </div>
+                  <div class="review-zoom-group" role="group" aria-label="缩放控制">
+                    <button id="zoomOutBtn" type="button" class="btn btn-compact" title="缩小">−</button>
+                    <button id="zoomResetBtn" type="button" class="btn btn-compact mono" title="重置为 100%">100%</button>
+                    <button id="zoomInBtn" type="button" class="btn btn-compact" title="放大">+</button>
+                    <button id="zoomToggleBtn" type="button" class="btn btn-compact" title="快速放大/适应窗口">放大</button>
+                  </div>
+                  <button id="reviewRotLeftBtn" type="button" class="btn btn-compact" title="逆时针旋转 90° 并重新识字">左转</button>
+                  <button id="reviewRotRightBtn" type="button" class="btn btn-compact" title="顺时针旋转 90° 并重新识字">右转</button>
+                  <select id="recleanModeSelect" class="book-select" style="min-width:96px;padding:3px 8px;font-size:12px;">
                     <option value="clean_color">洁净彩页</option>
                     <option value="grayscale_crisp">锐利灰度</option>
                     <option value="bw_sauvola">Sauvola 黑白</option>
                   </select>
-                  <button id="recleanPageBtn" type="button" class="btn btn-sm">重洗此页</button>
-                  <button id="reviewRotLeftBtn" type="button" class="btn btn-sm" title="逆时针旋转 90° 并重新识字">左转 90°</button>
-                  <button id="reviewRotRightBtn" type="button" class="btn btn-sm" title="顺时针旋转 90° 并重新识字">右转 90°</button>
-                  <button id="zoomToggleBtn" type="button" class="btn btn-sm">放大细节</button>
+                  <button id="recleanPageBtn" type="button" class="btn btn-compact">重洗</button>
                 </div>
               </div>
 
-              <div class="compare-stage scroller">
-                <div id="compareWrap" class="compare-wrap" title="直接在图像上左右拖动对比原图与清洗成片">
+              <div id="compareStage" class="compare-stage scroller">
+                <div id="compareWrap" class="compare-wrap" data-img-mode="clean" title="滚轮或双击缩放细节；放大后可拖拽平移，拉帘模式下左右拖动分界线">
                   <img id="compareCleanImg" src="data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7" alt="清洗后成片">
+                  <svg id="reviewBboxOverlay" class="review-bbox-overlay" preserveAspectRatio="none" aria-hidden="true"></svg>
                   <div id="compareRawLayer" class="compare-raw-layer" style="clip-path: inset(0 50% 0 0);">
                     <img id="compareRawImg" src="data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7" alt="原始翻拍图">
                   </div>
@@ -588,7 +539,7 @@
                 </div>
               </div>
 
-              <div class="compare-slider-row">
+              <div id="compareSliderRow" class="compare-slider-row hidden">
                 <input id="compareSlider" class="compare-slider" type="range" min="0" max="100" value="50" aria-label="原图与清洗结果对比滑杆">
                 <div class="compare-presets" role="group" aria-label="快速切换对比视角">
                   <button type="button" class="btn btn-compact" data-compare-preset="100">看原图</button>
@@ -596,24 +547,28 @@
                   <button type="button" class="btn btn-compact" data-compare-preset="0">看成片</button>
                 </div>
               </div>
-              <div id="reviewCleanDiag" class="muted-note">可在图像上直接左右拖动或点击预设对比去阴影与展平效果</div>
+              <div id="reviewCleanDiag" class="review-diag-foot muted-note" title="">请从左侧选择一个页面开始对比复核</div>
             </div>
 
-            <!-- Right Docked OCR Proofreading Inspector -->
+            <!-- Column 3: Compact Side-by-Side OCR Proofreading Inspector (Rendered Table First + Hover Sync) -->
             <div class="review-inspector">
-              <div class="toolbar-between">
-                <div class="toolbar-row" style="gap:8px;">
-                  <h2 class="card-title" style="margin:0;">文本校对与元数据</h2>
-                  <div class="segmented-bar" role="tablist" aria-label="文本视图切换">
-                    <button type="button" class="seg-btn is-active" data-review-text-mode="edit" style="padding:3px 9px;font-size:12px;">编辑 MD</button>
-                    <button type="button" class="seg-btn" data-review-text-mode="preview" style="padding:3px 9px;font-size:12px;">渲染预览</button>
-                  </div>
+              <div class="review-inspector-head">
+                <div class="segmented-bar" role="tablist" aria-label="文本视图切换">
+                  <button type="button" class="seg-btn is-active" data-review-text-mode="preview" style="padding:3px 9px;font-size:12px;">渲染对照</button>
+                  <button type="button" class="seg-btn" data-review-text-mode="edit" style="padding:3px 9px;font-size:12px;">编辑 MD</button>
                 </div>
-                <span id="reviewConfBadge" class="pill">置信度 -</span>
+                <div class="toolbar-row" style="gap:6px;">
+                  <span class="copy-wrap">
+                    <button id="reviewCopyMdBtn" type="button" class="btn btn-compact copy-button" command="--copy" commandfor="reviewTextEditor" title="复制完整 Markdown 原文">复制 MD</button>
+                    <span class="copy-tip" role="status"></span>
+                  </span>
+                  <span id="reviewConfBadge" class="pill">置信度 -</span>
+                </div>
               </div>
-              <div id="reviewFlagRow" class="toolbar-row"></div>
-              <textarea id="reviewTextEditor" class="input ocr-editor scroller" placeholder="等待 OCR 识别结果..."></textarea>
-              <div id="reviewMdPreview" class="md-preview-box hidden scroller"></div>
+              <div id="reviewFlagRow" class="review-flag-row hidden"></div>
+              <div id="reviewSyncHint" class="review-sync-hint">悬停或点击下方段落/表格行，左侧纸面自动框出原位 · 双击可编辑</div>
+              <div id="reviewMdPreview" class="md-preview-box scroller"></div>
+              <textarea id="reviewTextEditor" class="input ocr-editor hidden scroller" placeholder="等待 OCR 识别结果..."></textarea>
               <div class="review-actions">
                 <button id="saveTextBtn" type="button" class="btn btn-soft">
                   <span>保存</span>
@@ -624,7 +579,7 @@
                   <span>通过</span>
                   <kbd class="kbd kbd-on-dark">A</kbd>
                 </button>
-                <button id="deletePageBtn" type="button" class="btn btn-danger-ghost">删除废片</button>
+                <button id="deletePageBtn" type="button" class="btn btn-danger-ghost">删废片</button>
               </div>
             </div>
           </div>
@@ -803,7 +758,7 @@
               </div>
             </div>
             <div class="toolbar-row">
-              <button id="jumpToDatacleanBtn" type="button" class="btn btn-soft">去「4 表格」调整分拣与对齐 →</button>
+              <button id="jumpToDatacleanBtn" type="button" class="btn btn-soft">去「3 表格」调整分拣与对齐 →</button>
               <button class="btn btn-ok export-trigger" data-format="xlsx" type="button" style="flex:1;">生成并导出多 Sheet Excel (.xlsx)</button>
             </div>
           </div>
@@ -1178,6 +1133,7 @@
         <div><kbd class="kbd">J</kbd> / <kbd class="kbd">K</kbd></div><div>复核界面切换下一页 / 上一页</div>
         <div><kbd class="kbd">A</kbd></div><div>复核界面保存当前文本并一键通过</div>
         <div><kbd class="kbd">Ctrl+S</kbd></div><div>校对框内直接保存文本修订</div>
+        <div><kbd class="kbd">滚轮</kbd> / <kbd class="kbd">双击</kbd></div><div>复核纸面缩放细节，放大后可拖拽平移；<kbd class="kbd">Esc</kbd> 取消定位框锁定</div>
         <div><kbd class="kbd">?</kbd></div><div>打开 / 关闭本快捷键指南</div>
       </div>
     </div>

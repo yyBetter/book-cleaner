@@ -335,7 +335,7 @@ export function renderSafeMarkdown(text) {
 
   function flushPara() {
     if (!paraBuf.length) return;
-    frag.appendChild(el("p", { class: "md-p", text: paraBuf.join(" ") }));
+    frag.appendChild(el("p", { class: "md-p md-sync-block", text: paraBuf.join(" ") }));
     paraBuf = [];
   }
 
@@ -356,8 +356,8 @@ export function renderSafeMarkdown(text) {
       const thead = el("thead", {}, [
         el(
           "tr",
-          {},
-          headers.map((h) => el("th", { text: h }))
+          { class: "md-sync-block" },
+          headers.map((h) => el("th", { class: "md-sync-cell", text: h }))
         ),
       ]);
       const tbodyRows = [];
@@ -368,14 +368,14 @@ export function renderSafeMarkdown(text) {
         tbodyRows.push(
           el(
             "tr",
-            {},
-            cells.slice(0, colCount).map((c) => el("td", { text: c }))
+            { class: "md-sync-block" },
+            cells.slice(0, colCount).map((c) => el("td", { class: "md-sync-cell", text: c }))
           )
         );
         i += 1;
       }
       frag.appendChild(
-        el("div", { class: "md-table-scroll" }, [
+        el("div", { class: "md-table-scroll", tabindex: "0", role: "region", "aria-label": "识别表格内容" }, [
           el("table", { class: "md-table" }, [thead, el("tbody", {}, tbodyRows)]),
         ])
       );
@@ -387,7 +387,7 @@ export function renderSafeMarkdown(text) {
     if (hm) {
       flushPara();
       const lvl = hm[1].length;
-      frag.appendChild(el("div", { class: `md-h md-h${lvl}`, text: hm[2].trim() }));
+      frag.appendChild(el("div", { class: `md-h md-h${lvl} md-sync-block`, text: hm[2].trim() }));
       i += 1;
       continue;
     }
@@ -405,7 +405,7 @@ export function renderSafeMarkdown(text) {
           ? /^\d{1,3}[.、)]\s+(.*)$/.exec(cur)
           : /^[-*•·]\s+(.*)$/.exec(cur);
         if (!mCur) break;
-        items.push(el("li", { text: mCur[1].trim() }));
+        items.push(el("li", { class: "md-sync-block", text: mCur[1].trim() }));
         i += 1;
       }
       frag.appendChild(el(listTag, { class: "md-list" }, items));

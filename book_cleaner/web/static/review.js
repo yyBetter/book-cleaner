@@ -101,16 +101,12 @@ export function createReviewAndPipelineController(state, callbacks) {
   let selectedPage = null;
   let multiSelectMode = false;
   const selectedPageIds = new Set();
-  let pipelineFilter = "ALL";
-  let pipelineItems = [];
-  let selectedPipelinePageId = null;
-  let xrayOcrViewMode = "render"; // "render" | "source"
-  let xrayDiagOpen = false;
-  let xrayOcrExpanded = false;
-  let reviewTextViewMode = "edit"; // "edit" | "preview"
-  let nextStepAction = "capture";
+  let reviewTextViewMode = "preview"; // "preview" | "edit"
+  let imgMode = "clean"; // "clean" | "raw" | "split"
+  let zoomScale = 1.0;
+  let pinnedSyncEl = null;
 
-  // Pipeline Monitor elements
+  // Compact Progress Strip & Jobs Dialog elements
   const kpiTotal = document.getElementById("kpiTotal");
   const kpiCompleted = document.getElementById("kpiCompleted");
   const kpiClean = document.getElementById("kpiClean");
@@ -119,22 +115,10 @@ export function createReviewAndPipelineController(state, callbacks) {
   const kpiFailed = document.getElementById("kpiFailed");
   const pipelineHeroHeadline = document.getElementById("pipelineHeroHeadline");
   const pipelineHeroSub = document.getElementById("pipelineHeroSub");
-  const pipelineNextStepBtn = document.getElementById("pipelineNextStepBtn");
+  const globalProgressNote = document.getElementById("globalProgressNote");
   const pipeStep1Meta = document.getElementById("pipeStep1Meta");
   const pipeStep2Meta = document.getElementById("pipeStep2Meta");
   const pipeStep3Meta = document.getElementById("pipeStep3Meta");
-  const pipelinePagesList = document.getElementById("pipelinePagesList");
-  const pipeXrayCol = document.getElementById("pipeXrayCol");
-  const pipeXrayTitle = document.getElementById("pipeXrayTitle");
-  const pipeXrayVerdictPill = document.getElementById("pipeXrayVerdictPill");
-  const pipeXrayRotLeftBtn = document.getElementById("pipeXrayRotLeftBtn");
-  const pipeXrayRotRightBtn = document.getElementById("pipeXrayRotRightBtn");
-  const pipeXrayApproveBtn = document.getElementById("pipeXrayApproveBtn");
-  const pipeXrayJumpBtn = document.getElementById("pipeXrayJumpBtn");
-  const pipeXrayDeleteBtn = document.getElementById("pipeXrayDeleteBtn");
-  const pipeXrayRawImg = document.getElementById("pipeXrayRawImg");
-  const pipeXrayCleanImg = document.getElementById("pipeXrayCleanImg");
-  const pipeXrayTimeline = document.getElementById("pipeXrayTimeline");
   const pipelineJobsDialog = document.getElementById("pipelineJobsDialog");
   const openJobsDialogBtn = document.getElementById("openJobsDialogBtn");
   const pipelineJobsCount = document.getElementById("pipelineJobsCount");
@@ -145,20 +129,28 @@ export function createReviewAndPipelineController(state, callbacks) {
   const exportJobsBody = document.getElementById("exportJobsBody");
   enableDialogLightDismissFallback(pipelineJobsDialog);
 
-  // Review elements
+  // Unified Proofreading Workbench elements
   const reviewGallery = document.getElementById("reviewGallery");
   const pageListPagerInfo = document.getElementById("pageListPagerInfo");
   const reviewImageTitle = document.getElementById("reviewImageTitle");
+  const reviewEnginePill = document.getElementById("reviewEnginePill");
+  const compareStage = document.getElementById("compareStage");
   const compareWrap = document.getElementById("compareWrap");
   const compareCleanImg = document.getElementById("compareCleanImg");
   const compareRawImg = document.getElementById("compareRawImg");
   const compareRawLayer = document.getElementById("compareRawLayer");
   const compareDivider = document.getElementById("compareDivider");
   const compareSlider = document.getElementById("compareSlider");
+  const compareSliderRow = document.getElementById("compareSliderRow");
+  const reviewBboxOverlay = document.getElementById("reviewBboxOverlay");
+  const zoomOutBtn = document.getElementById("zoomOutBtn");
+  const zoomResetBtn = document.getElementById("zoomResetBtn");
+  const zoomInBtn = document.getElementById("zoomInBtn");
   const zoomToggleBtn = document.getElementById("zoomToggleBtn");
   const reviewCleanDiag = document.getElementById("reviewCleanDiag");
   const reviewConfBadge = document.getElementById("reviewConfBadge");
   const reviewFlagRow = document.getElementById("reviewFlagRow");
+  const reviewSyncHint = document.getElementById("reviewSyncHint");
   const reviewTextEditor = document.getElementById("reviewTextEditor");
   const reviewMdPreview = document.getElementById("reviewMdPreview");
   const recleanModeSelect = document.getElementById("recleanModeSelect");
@@ -183,52 +175,462 @@ export function createReviewAndPipelineController(state, callbacks) {
 
   function setSliderPercent(pct) {
     const clamped = Math.max(0, Math.min(100, Number(pct)));
-    compareSlider.value = String(Math.round(clamped));
-    compareRawLayer.style.clipPath = `inset(0 ${100 - clamped}% 0 0)`;
-    compareDivider.style.left = `${clamped}%`;
+    if (compareSlider) compareSlider.value = String(Math.round(clamped));
+    if (compareRawLayer && imgMode === "split") {
+      compareRawLayer.style.clipPath = `inset(0 ${100 - clamped}% 0 0)`;
+    }
+    if (compareDivider) compareDivider.style.left = `${clamped}%`;
   }
 
-  compareSlider.addEventListener("input", (e) => setSliderPercent(e.target.value));
+  if (compareSlider) {
+    compareSlider.addEventListener("input", (e) => setSliderPercent(e.target.value));
+  }
   document.querySelectorAll("[data-compare-preset]").forEach((btn) => {
-    btn.addEventListener("click", () => setSliderPercent(Number(btn.dataset.comparePreset)));
+    btn.addEventListener("click", () => {
+      if (imgMode !== "split") setImageMode("split");
+      setSliderPercent(Number(btn.dataset.comparePreset));
+    });
   });
 
-  // Direct pointer drag on comparison stage
-  let isDraggingCompare = false;
+  function getActivePrimaryImg() {
+    return imgMode === "raw" ? compareRawImg : compareCleanImg;
+  }
+
+  function applyZoomLayout({ keepCenter = false } = {}) {
+    const primary = getActivePrimaryImg();
+    const isZoomed = Math.abs(zoomScale - 1.0) > 0.02;
+    const isPanZoom = zoomScale > 1.02;
+
+    if (zoomResetBtn) {
+      zoomResetBtn.textContent = `${Math.round(zoomScale * 100)}%`;
+    }
+    if (zoomToggleBtn) {
+      zoomToggleBtn.textContent = zoomScale > 1.05 ? "适应" : "放大";
+    }
+    if (compareWrap) {
+      compareWrap.classList.toggle("is-zoomed", isZoomed);
+      compareWrap.classList.toggle("is-pan-ready", imgMode !== "split" && isPanZoom);
+    }
+    if (compareStage) {
+      compareStage.classList.toggle("is-zoomed", isPanZoom);
+    }
+
+    const prevW = compareStage ? compareStage.scrollWidth : 1;
+    const prevH = compareStage ? compareStage.scrollHeight : 1;
+    const prevCenterX = compareStage ? compareStage.scrollLeft + compareStage.clientWidth / 2 : 0;
+    const prevCenterY = compareStage ? compareStage.scrollTop + compareStage.clientHeight / 2 : 0;
+
+    [compareCleanImg, compareRawImg].forEach((img) => {
+      if (!img) return;
+      img.style.width = "";
+      img.style.height = "";
+      img.style.maxWidth = "";
+      img.style.maxHeight = "";
+    });
+
+    if (isZoomed && compareStage && primary && primary.naturalWidth > 0 && primary.naturalHeight > 0) {
+      const stageW = Math.max(240, compareStage.clientWidth - 24);
+      const stageH = Math.max(220, compareStage.clientHeight - 24);
+      const fitScale = Math.min(stageW / primary.naturalWidth, stageH / primary.naturalHeight);
+      const targetW = Math.max(120, Math.round(primary.naturalWidth * fitScale * zoomScale));
+      const targetH = Math.max(120, Math.round(primary.naturalHeight * fitScale * zoomScale));
+
+      if (imgMode === "raw") {
+        if (compareRawImg) {
+          compareRawImg.style.width = `${targetW}px`;
+          compareRawImg.style.height = `${targetH}px`;
+          compareRawImg.style.maxWidth = "none";
+          compareRawImg.style.maxHeight = "none";
+        }
+      } else {
+        if (compareCleanImg) {
+          compareCleanImg.style.width = `${targetW}px`;
+          compareCleanImg.style.height = `${targetH}px`;
+          compareCleanImg.style.maxWidth = "none";
+          compareCleanImg.style.maxHeight = "none";
+        }
+      }
+
+      if (keepCenter && prevW > 0 && prevH > 0) {
+        requestAnimationFrame(() => {
+          const rx = prevCenterX / prevW;
+          const ry = prevCenterY / prevH;
+          compareStage.scrollLeft = Math.max(0, rx * compareStage.scrollWidth - compareStage.clientWidth / 2);
+          compareStage.scrollTop = Math.max(0, ry * compareStage.scrollHeight - compareStage.clientHeight / 2);
+        });
+      }
+    }
+  }
+
+  function setZoomScale(nextScale, opts = {}) {
+    let clamped = Math.max(0.75, Math.min(3.2, Number(nextScale) || 1.0));
+    if (Math.abs(clamped - 1.0) < 0.04) clamped = 1.0;
+    zoomScale = clamped;
+    applyZoomLayout(opts);
+  }
+
+  function setImageMode(mode) {
+    const next = mode === "raw" || mode === "split" ? mode : "clean";
+    imgMode = next;
+    if (compareWrap) {
+      compareWrap.dataset.imgMode = next;
+    }
+    document.querySelectorAll("[data-img-mode]").forEach((btn) => {
+      btn.classList.toggle("is-active", btn.dataset.imgMode === next);
+    });
+    if (compareSliderRow) {
+      compareSliderRow.classList.toggle("hidden", next !== "split");
+    }
+    if (compareRawLayer) {
+      if (next === "split") {
+        const pct = compareSlider ? Number(compareSlider.value || 50) : 50;
+        compareRawLayer.style.clipPath = `inset(0 ${100 - pct}% 0 0)`;
+        if (compareDivider) compareDivider.style.left = `${pct}%`;
+      } else {
+        compareRawLayer.style.clipPath = "none";
+      }
+    }
+    applyZoomLayout();
+    refreshBboxForCurrentState();
+  }
+
+  document.querySelectorAll("[data-img-mode]").forEach((btn) => {
+    btn.addEventListener("click", () => setImageMode(btn.dataset.imgMode));
+  });
+
+  [compareCleanImg, compareRawImg].forEach((img) => {
+    if (!img) return;
+    img.addEventListener("load", () => {
+      if (Math.abs(zoomScale - 1.0) > 0.02) applyZoomLayout();
+    });
+  });
+
+  if (zoomOutBtn) zoomOutBtn.addEventListener("click", () => setZoomScale(zoomScale - 0.2, { keepCenter: true }));
+  if (zoomInBtn) zoomInBtn.addEventListener("click", () => setZoomScale(zoomScale + 0.2, { keepCenter: true }));
+  if (zoomResetBtn) zoomResetBtn.addEventListener("click", () => setZoomScale(1.0));
+  if (zoomToggleBtn) {
+    zoomToggleBtn.addEventListener("click", () => {
+      setZoomScale(zoomScale > 1.05 ? 1.0 : 1.75, { keepCenter: true });
+    });
+  }
+
+  if (compareStage) {
+    compareStage.addEventListener(
+      "wheel",
+      (e) => {
+        if (!selectedPage) return;
+        e.preventDefault();
+        const step = e.deltaY < 0 ? 0.15 : -0.15;
+        setZoomScale(zoomScale + step, { keepCenter: true });
+      },
+      { passive: false }
+    );
+  }
+
+  // Pointer drag: split-curtain wipe in split mode, drag-to-pan when zoomed in clean/raw mode
+  let dragMode = null; // "split" | "pan" | null
+  let panStart = { x: 0, y: 0, left: 0, top: 0 };
+
   function updateCompareFromPointer(clientX) {
     const rect = compareWrap.getBoundingClientRect();
     if (!rect.width) return;
     setSliderPercent(((clientX - rect.left) / rect.width) * 100);
   }
-  compareWrap.addEventListener("pointerdown", (e) => {
-    isDraggingCompare = true;
-    try {
-      compareWrap.setPointerCapture?.(e.pointerId);
-    } catch {
-      // Ignore synthetic events
-    }
-    updateCompareFromPointer(e.clientX);
-  });
-  compareWrap.addEventListener("pointermove", (e) => {
-    if (!isDraggingCompare) return;
-    updateCompareFromPointer(e.clientX);
-  });
-  ["pointerup", "pointercancel"].forEach((evt) => {
-    compareWrap.addEventListener(evt, (e) => {
-      if (!isDraggingCompare) return;
-      isDraggingCompare = false;
-      try {
-        compareWrap.releasePointerCapture?.(e.pointerId);
-      } catch {
-        // Ignore
+
+  if (compareWrap) {
+    compareWrap.addEventListener("dblclick", (e) => {
+      if (!selectedPage) return;
+      e.preventDefault();
+      setZoomScale(zoomScale > 1.05 ? 1.0 : 1.75, { keepCenter: true });
+    });
+
+    compareWrap.addEventListener("pointerdown", (e) => {
+      if (imgMode === "split") {
+        dragMode = "split";
+        try {
+          compareWrap.setPointerCapture?.(e.pointerId);
+        } catch {
+          // Ignore synthetic events
+        }
+        updateCompareFromPointer(e.clientX);
+      } else if (zoomScale > 1.02 && compareStage) {
+        dragMode = "pan";
+        panStart = {
+          x: e.clientX,
+          y: e.clientY,
+          left: compareStage.scrollLeft,
+          top: compareStage.scrollTop,
+        };
+        compareWrap.classList.add("is-panning");
+        try {
+          compareWrap.setPointerCapture?.(e.pointerId);
+        } catch {
+          // Ignore
+        }
       }
     });
-  });
 
-  zoomToggleBtn.addEventListener("click", () => {
-    const zoomed = compareWrap.classList.toggle("is-zoomed");
-    zoomToggleBtn.textContent = zoomed ? "恢复适应" : "放大细节";
-  });
+    compareWrap.addEventListener("pointermove", (e) => {
+      if (dragMode === "split") {
+        updateCompareFromPointer(e.clientX);
+      } else if (dragMode === "pan" && compareStage) {
+        compareStage.scrollLeft = panStart.left - (e.clientX - panStart.x);
+        compareStage.scrollTop = panStart.top - (e.clientY - panStart.y);
+      }
+    });
+
+    ["pointerup", "pointercancel"].forEach((evt) => {
+      compareWrap.addEventListener(evt, (e) => {
+        if (!dragMode) return;
+        dragMode = null;
+        compareWrap.classList.remove("is-panning");
+        try {
+          compareWrap.releasePointerCapture?.(e.pointerId);
+        } catch {
+          // Ignore
+        }
+      });
+    });
+  }
+
+  // OCR Bounding-Box Sync Overlay Helpers
+  function normalizeMatchText(s) {
+    return String(s || "")
+      .toLowerCase()
+      .replace(/[\s|｜,:;，。：；、\-_'"`()（）\[\]{}<>《》·•]+/g, "");
+  }
+
+  function makeBigrams(s) {
+    const out = new Set();
+    if (!s) return out;
+    if (s.length === 1) {
+      out.add(s);
+      return out;
+    }
+    for (let i = 0; i < s.length - 1; i += 1) {
+      out.add(s.slice(i, i + 2));
+    }
+    return out;
+  }
+
+  function bigramDice(a, b) {
+    if (!a || !b) return 0;
+    const ga = makeBigrams(a);
+    const gb = makeBigrams(b);
+    let hit = 0;
+    ga.forEach((g) => {
+      if (gb.has(g)) hit += 1;
+    });
+    return (2 * hit) / (ga.size + gb.size);
+  }
+
+  function matchBlocksForFragment(fragNorm, blocks, { multiLine = false } = {}) {
+    if (!fragNorm || !blocks.length) return [];
+    const exact = [];
+    const contained = [];
+    let bestSingle = null;
+    let bestScore = 0;
+
+    for (const blk of blocks) {
+      const normB = blk._norm;
+      if (!normB) continue;
+      if (normB === fragNorm) {
+        exact.push(blk);
+        continue;
+      }
+      if (multiLine && normB.length >= 2 && fragNorm.includes(normB)) {
+        contained.push(blk);
+        continue;
+      }
+      let score = 0;
+      if (normB.length >= 2 && fragNorm.length >= 2) {
+        if (normB.includes(fragNorm)) {
+          score = 0.88 + Math.min(0.1, fragNorm.length / Math.max(1, normB.length) * 0.1);
+        } else if (fragNorm.includes(normB)) {
+          score = 0.82 + Math.min(0.1, normB.length / Math.max(1, fragNorm.length) * 0.1);
+        } else {
+          const dice = bigramDice(fragNorm, normB);
+          if (dice >= 0.45) score = dice * 0.8;
+        }
+      }
+      if (score > bestScore) {
+        bestScore = score;
+        bestSingle = blk;
+      }
+    }
+
+    if (exact.length) return exact;
+    if (multiLine && contained.length) return contained;
+    return bestSingle ? [bestSingle] : [];
+  }
+
+  function findBlocksForSyncEl(targetEl, page) {
+    if (!targetEl || !page || !Array.isArray(page.ocr_blocks) || !page.ocr_blocks.length) return [];
+    const validBlocks = page.ocr_blocks
+      .filter((b) => Array.isArray(b.bbox) && b.bbox.length >= 4 && b.text)
+      .map((b) => ({ ...b, _norm: normalizeMatchText(b.text) }))
+      .filter((b) => b._norm.length > 0);
+    if (!validBlocks.length) return [];
+
+    if (targetEl.matches("tr")) {
+      const picked = [];
+      const seen = new Set();
+      targetEl.querySelectorAll("th, td").forEach((cell) => {
+        const normCell = normalizeMatchText(cell.textContent);
+        if (!normCell) return;
+        for (const m of matchBlocksForFragment(normCell, validBlocks, { multiLine: false })) {
+          const k = JSON.stringify(m.bbox);
+          if (!seen.has(k)) {
+            seen.add(k);
+            picked.push(m);
+          }
+        }
+      });
+      return picked;
+    }
+
+    if (targetEl.matches(".md-sync-cell")) {
+      const normCell = normalizeMatchText(targetEl.textContent);
+      if (normCell) {
+        const res = matchBlocksForFragment(normCell, validBlocks, { multiLine: false });
+        if (res.length) return res;
+      }
+      const row = targetEl.closest("tr");
+      return row ? findBlocksForSyncEl(row, page) : [];
+    }
+
+    const normText = normalizeMatchText(targetEl.textContent);
+    return matchBlocksForFragment(normText, validBlocks, { multiLine: true });
+  }
+
+  function canDisplayBboxOverlay() {
+    if (!selectedPage || !compareCleanImg) return false;
+    if (imgMode === "clean" || imgMode === "split") return true;
+    const m = selectedPage.clean_meta || {};
+    const rot = ((Number(m.rotated_deg || 0) % 360) + 360) % 360;
+    if (m.cropped || rot !== 0 || Math.abs(Number(m.deskew_deg || 0)) >= 0.6 || Number(m.dewarp_px || 0) >= 2.0) {
+      return false;
+    }
+    const cw = Number(m.output_width || compareCleanImg.naturalWidth || 0);
+    const ch = Number(m.output_height || compareCleanImg.naturalHeight || 0);
+    const rw = Number(compareRawImg ? compareRawImg.naturalWidth : 0);
+    const rh = Number(compareRawImg ? compareRawImg.naturalHeight : 0);
+    return cw > 0 && ch > 0 && Math.abs(cw - rw) <= 6 && Math.abs(ch - rh) <= 6;
+  }
+
+  function renderBboxOverlay(blocks, { pinned = false, scrollToMatch = false } = {}) {
+    if (!reviewBboxOverlay) return;
+    if (!selectedPage || !blocks.length || !canDisplayBboxOverlay()) {
+      reviewBboxOverlay.replaceChildren();
+      return;
+    }
+    const m = selectedPage.clean_meta || {};
+    const w = Number(m.output_width || (compareCleanImg && compareCleanImg.naturalWidth) || 0);
+    const h = Number(m.output_height || (compareCleanImg && compareCleanImg.naturalHeight) || 0);
+    if (!w || !h) {
+      reviewBboxOverlay.replaceChildren();
+      return;
+    }
+
+    const svgNS = "http://www.w3.org/2000/svg";
+    reviewBboxOverlay.setAttribute("viewBox", `0 0 ${w} ${h}`);
+    const polys = [];
+    let minX = Infinity;
+    let minY = Infinity;
+    let maxX = -Infinity;
+    let maxY = -Infinity;
+
+    for (const b of blocks) {
+      const pts = b.bbox
+        .slice(0, 4)
+        .map((pt) => {
+          const px = Number(pt[0] || 0);
+          const py = Number(pt[1] || 0);
+          minX = Math.min(minX, px);
+          minY = Math.min(minY, py);
+          maxX = Math.max(maxX, px);
+          maxY = Math.max(maxY, py);
+          return `${px.toFixed(1)},${py.toFixed(1)}`;
+        })
+        .join(" ");
+      const poly = document.createElementNS(svgNS, "polygon");
+      poly.setAttribute("points", pts);
+      poly.setAttribute("class", pinned ? "bbox-poly is-pinned" : "bbox-poly");
+      polys.push(poly);
+    }
+    reviewBboxOverlay.replaceChildren(...polys);
+
+    if (scrollToMatch && zoomScale > 1.02 && compareStage && Number.isFinite(minX)) {
+      const cxRatio = ((minX + maxX) / 2) / w;
+      const cyRatio = ((minY + maxY) / 2) / h;
+      const imgRect = getActivePrimaryImg()?.getBoundingClientRect();
+      if (imgRect && imgRect.width > compareStage.clientWidth) {
+        compareStage.scrollTo({
+          left: Math.max(0, cxRatio * compareStage.scrollWidth - compareStage.clientWidth / 2),
+          top: Math.max(0, cyRatio * compareStage.scrollHeight - compareStage.clientHeight / 2),
+          behavior: "smooth",
+        });
+      }
+    }
+  }
+
+  function clearBboxHighlight({ clearPin = true } = {}) {
+    if (clearPin && pinnedSyncEl) {
+      pinnedSyncEl.classList.remove("is-sync-pinned");
+      pinnedSyncEl = null;
+    }
+    if (reviewMdPreview) {
+      reviewMdPreview.querySelectorAll(".is-sync-hover").forEach((n) => n.classList.remove("is-sync-hover"));
+    }
+    if (!pinnedSyncEl && reviewBboxOverlay) {
+      reviewBboxOverlay.replaceChildren();
+    }
+  }
+
+  function refreshBboxForCurrentState() {
+    if (!pinnedSyncEl) {
+      if (reviewBboxOverlay) reviewBboxOverlay.replaceChildren();
+      return;
+    }
+    const matches = findBlocksForSyncEl(pinnedSyncEl, selectedPage);
+    renderBboxOverlay(matches, { pinned: true, scrollToMatch: false });
+  }
+
+  if (reviewMdPreview) {
+    reviewMdPreview.addEventListener("pointerover", (e) => {
+      if (pinnedSyncEl || !selectedPage) return;
+      const syncEl = e.target.closest(".md-sync-cell, .md-sync-block");
+      if (!syncEl || !reviewMdPreview.contains(syncEl)) return;
+      reviewMdPreview.querySelectorAll(".is-sync-hover").forEach((n) => n.classList.remove("is-sync-hover"));
+      syncEl.classList.add("is-sync-hover");
+      renderBboxOverlay(findBlocksForSyncEl(syncEl, selectedPage), { pinned: false });
+    });
+
+    reviewMdPreview.addEventListener("pointerleave", () => {
+      if (pinnedSyncEl) return;
+      clearBboxHighlight({ clearPin: false });
+    });
+
+    reviewMdPreview.addEventListener("click", (e) => {
+      if (!selectedPage) return;
+      const syncEl = e.target.closest(".md-sync-cell, .md-sync-block");
+      if (!syncEl || !reviewMdPreview.contains(syncEl)) return;
+      if (pinnedSyncEl === syncEl) {
+        clearBboxHighlight({ clearPin: true });
+        return;
+      }
+      if (pinnedSyncEl) pinnedSyncEl.classList.remove("is-sync-pinned");
+      pinnedSyncEl = syncEl;
+      pinnedSyncEl.classList.add("is-sync-pinned");
+      renderBboxOverlay(findBlocksForSyncEl(syncEl, selectedPage), { pinned: true, scrollToMatch: true });
+    });
+
+    reviewMdPreview.addEventListener("dblclick", () => {
+      reviewTextViewMode = "edit";
+      syncReviewTextView();
+      if (reviewTextEditor) reviewTextEditor.focus();
+    });
+  }
 
   function renderStats(stats) {
     const b = (stats && stats.book) || {
@@ -240,28 +642,35 @@ export function createReviewAndPipelineController(state, callbacks) {
       needs_review: 0,
       failed: 0,
     };
-    kpiTotal.textContent = String(b.total);
-    kpiCompleted.textContent = String(b.completed);
-    kpiClean.textContent = String(b.pending_clean);
-    kpiOcr.textContent = String(b.pending_ocr + (b.pending_llm || 0));
-    kpiReview.textContent = String(b.needs_review);
-    kpiFailed.textContent = String(b.failed);
+    if (kpiTotal) kpiTotal.textContent = String(b.total);
+    if (kpiCompleted) kpiCompleted.textContent = String(b.completed);
+    if (kpiClean) kpiClean.textContent = String(b.pending_clean);
+    if (kpiOcr) kpiOcr.textContent = String(b.pending_ocr + (b.pending_llm || 0));
+    if (kpiReview) kpiReview.textContent = String(b.needs_review);
+    if (kpiFailed) kpiFailed.textContent = String(b.failed);
 
     const denom = Math.max(1, b.total);
     const proc = b.pending_clean + b.pending_ocr + (b.pending_llm || 0);
     const processed = b.completed + b.needs_review + b.failed;
 
-    document.getElementById("barDone").style.width = `${(b.completed / denom) * 100}%`;
-    document.getElementById("barProc").style.width = `${(proc / denom) * 100}%`;
-    document.getElementById("barReview").style.width = `${(b.needs_review / denom) * 100}%`;
-    document.getElementById("barFailed").style.width = `${(b.failed / denom) * 100}%`;
+    const barDone = document.getElementById("barDone");
+    const barProc = document.getElementById("barProc");
+    const barReview = document.getElementById("barReview");
+    const barFailed = document.getElementById("barFailed");
+    if (barDone) barDone.style.width = `${(b.completed / denom) * 100}%`;
+    if (barProc) barProc.style.width = `${(proc / denom) * 100}%`;
+    if (barReview) barReview.style.width = `${(b.needs_review / denom) * 100}%`;
+    if (barFailed) barFailed.style.width = `${(b.failed / denom) * 100}%`;
 
-    document.getElementById("globalProgressNote").textContent =
-      b.total > 0
-        ? proc === 0
-          ? `自动加工进度 100%（${b.total}/${b.total} 页全部跑完）`
-          : `正在自动加工：已跑完 ${processed}/${b.total} 页（${proc} 页排队中）`
-        : "尚无页面";
+    if (globalProgressNote) {
+      if (b.total === 0) {
+        globalProgressNote.textContent = "尚无页面";
+      } else if (proc > 0) {
+        globalProgressNote.textContent = `已完成 ${processed}/${b.total} · 排队 ${proc}`;
+      } else {
+        globalProgressNote.textContent = `合格 ${b.completed} · 待复核 ${b.needs_review} · 失败 ${b.failed}`;
+      }
+    }
 
     if (pipeStep1Meta) pipeStep1Meta.textContent = b.total > 0 ? "· 已安全落盘" : "· 等待入库";
     if (pipeStep2Meta) pipeStep2Meta.textContent = `· 已洗净 ${Math.max(0, b.total - b.pending_clean)} 页`;
@@ -272,77 +681,27 @@ export function createReviewAndPipelineController(state, callbacks) {
     if (resumePipelineBtn) resumePipelineBtn.classList.toggle("hidden", !isPaused);
     if (retryFailedBtn) retryFailedBtn.classList.toggle("hidden", b.failed === 0);
 
-    if (pipelineHeroHeadline && pipelineHeroSub && pipelineNextStepBtn) {
+    if (pipelineHeroHeadline && pipelineHeroSub) {
       if (b.total === 0) {
         pipelineHeroHeadline.textContent = "等待采集照片…";
         pipelineHeroSub.textContent = "在「1 拍照」拍入或拖入纸张图片后，后台会自动完成切边、去阴影、离线识字与清晰度把关。";
-        pipelineNextStepBtn.textContent = "去「1 拍照」开始采集 →";
-        nextStepAction = "capture";
       } else if (isPaused) {
-        pipelineHeroHeadline.textContent = `后台流水线已暂停（共 ${b.total} 页，还有 ${proc} 页待加工）`;
+        pipelineHeroHeadline.textContent = `后台已暂停（共 ${b.total} 页，剩 ${proc} 页待加工）`;
         pipelineHeroSub.textContent = "点击右侧「恢复运行」后将继续自动图像清洗和离线文字识别。";
-        pipelineNextStepBtn.textContent = "去「3 复核」查看已加工页 →";
-        nextStepAction = "review_all";
       } else if (proc > 0) {
-        pipelineHeroHeadline.textContent = `后台正在自动清洗与识字（剩余 ${proc} 页排队）…`;
-        pipelineHeroSub.textContent = `目前已完成 ${processed}/${b.total} 页，您可以继续拍照，不必等待。`;
-        pipelineNextStepBtn.textContent = "去「3 复核」先看已出结果 →";
-        nextStepAction = "review_all";
+        pipelineHeroHeadline.textContent = `正在后台清洗与识字（剩 ${proc} 页排队）…`;
+        pipelineHeroSub.textContent = `已完成 ${processed}/${b.total} 页，可先在下方核对已出结果，也可以继续拍照。`;
       } else if (b.failed > 0) {
-        pipelineHeroHeadline.textContent = `后台加工已跑完（共 ${b.total} 页，${b.failed} 页失败待处理）`;
-        pipelineHeroSub.textContent = "可点右侧「重试失败页」重新识别，或在下方直接删除无法使用的废片。";
-        pipelineNextStepBtn.textContent = "去「3 复核」清理异常页 →";
-        nextStepAction = "review_needs";
+        pipelineHeroHeadline.textContent = `加工完毕（${b.failed} 页失败待处理）`;
+        pipelineHeroSub.textContent = "可点右侧「重试失败」重新识别，或在下方直接删掉无法使用的废片。";
       } else if (b.needs_review > 0) {
-        pipelineHeroHeadline.textContent = `后台已全部自动加工完毕（${b.total}/${b.total} 页）`;
-        pipelineHeroSub.textContent = `${b.completed} 页直接合格；系统发现 ${b.needs_review} 页疑似模糊、连拍重复或文字把握度偏低（已标黄），请复核确认或删废片。`;
-        pipelineNextStepBtn.textContent = `去「3 复核」清理 ${b.needs_review} 页异常 →`;
-        nextStepAction = "review_needs";
+        pipelineHeroHeadline.textContent = `已全部加工完毕（${b.total}/${b.total} 页）`;
+        pipelineHeroSub.textContent = `${b.completed} 页直接合格；${b.needs_review} 页存在模糊、重复或低置信疑点，建议逐页核对或删废。`;
       } else {
-        pipelineHeroHeadline.textContent = `全部 ${b.total} 页均已清洗并绿灯合格！`;
-        pipelineHeroSub.textContent = "可以前往「4 表格」按模板自动分拣对表，并导出标准 Excel 或 CatBoost 宽表。";
-        pipelineNextStepBtn.textContent = "去「4 表格」分拣并导出 →";
-        nextStepAction = "dataclean";
+        pipelineHeroHeadline.textContent = `全部 ${b.total} 页绿灯合格！`;
+        pipelineHeroSub.textContent = "可前往「3 表格」按模板自动分拣对表，并导出标准 Excel 或 CatBoost 宽表。";
       }
     }
-  }
-
-  function formatCleanActions(page) {
-    const st = page.status || "";
-    if (st === "CAPTURED" || st === "STAGING") {
-      return [{ label: "排队等待清洗…", cls: "pipe-tag" }];
-    }
-    if (st === "CLEANING") {
-      return [{ label: "正在切边展平…", cls: "pipe-tag" }];
-    }
-    const m = page.clean_meta || {};
-    const chips = [];
-    const rot = ((Number(m.rotated_deg || 0) % 360) + 360) % 360;
-    if (rot !== 0) {
-      chips.push({
-        label: m.rotation_source === "manual" ? `手动旋转 ${rot}°` : `自动转正 ${rot}°`,
-        cls: "pipe-tag is-ok",
-      });
-    }
-    if (m.cropped) chips.push({ label: "已切边", cls: "pipe-tag" });
-    const deg = Number(m.deskew_deg || 0);
-    if (Math.abs(deg) >= 0.3) chips.push({ label: `纠偏 ${deg.toFixed(1)}°`, cls: "pipe-tag" });
-    const dewarp = Number(m.dewarp_px || 0);
-    if (dewarp >= 1.5) chips.push({ label: `展平 ${dewarp.toFixed(1)}px`, cls: "pipe-tag" });
-    const fingers = Number(m.fingers_removed || 0);
-    if (fingers > 0) chips.push({ label: `擦手指 ×${fingers}`, cls: "pipe-tag" });
-    if (Number(m.bg_uniformity_before || 0) - Number(m.bg_uniformity_after || 0) >= 2.0) {
-      chips.push({ label: "去阴影漂白", cls: "pipe-tag" });
-    }
-    const mode = (m.profile && m.profile.enhance_mode) || "";
-    const modeMap = {
-      clean_color: "洁净彩页",
-      grayscale_crisp: "锐利灰度",
-      bw_sauvola: "黑白二值",
-    };
-    if (modeMap[mode]) chips.push({ label: modeMap[mode], cls: "pipe-tag" });
-    if (!chips.length) chips.push({ label: "基础光学校准", cls: "pipe-tag" });
-    return chips;
   }
 
   const UPGRADE_REASON_LABELS = {
@@ -376,416 +735,25 @@ export function createReviewAndPipelineController(state, callbacks) {
     };
   }
 
-  function formatOcrSummary(page) {
-    const st = page.status || "";
-    if (st === "CAPTURED" || st === "STAGING" || st === "CLEANING" || st === "CLEANED") {
-      return { badge: "等待识别…", cls: "pipe-tag", note: "清洗完自动排队" };
-    }
-    if (st === "OCR_RUNNING") {
-      return { badge: "正在离线识字…", cls: "pipe-tag", note: "RapidOCR 运行中" };
-    }
-    if (st === "FAILED") {
-      return { badge: "识别中断", cls: "pipe-tag is-danger", note: page.error_msg || "可点重试" };
-    }
-    const txt = String(page.clean_text || page.ocr_text || "").trim();
-    const chars = txt.length;
-    const confPct = Number(page.ocr_confidence || 0) * 100;
-    if (chars === 0) {
-      return { badge: "未识出文字", cls: "pipe-tag is-warn", note: "画面过糊或空白页" };
-    }
-    return {
-      badge: `识出 ${chars} 字`,
-      cls: confPct >= 82 ? "pipe-tag is-ok" : "pipe-tag is-warn",
-      note: `把握度 ${confPct.toFixed(1)}%`,
-    };
-  }
+  const SHORT_STATUS_LABELS = {
+    STAGING: "暂存",
+    CAPTURED: "待洗",
+    CLEANING: "清洗",
+    CLEANED: "待字",
+    OCR_RUNNING: "识字",
+    OCR_DONE: "待核",
+    LLM_RUNNING: "精校",
+    LLM_DONE: "精完",
+    READY: "待检",
+    NEEDS_REVIEW: "待核",
+    APPROVED: "通过",
+    FAILED: "失败",
+  };
 
-  function setPipelineFilter(nextFilter) {
-    pipelineFilter = nextFilter || "ALL";
-    document.querySelectorAll("[data-pipe-filter]").forEach((b) => {
-      const act = b.dataset.pipeFilter === pipelineFilter;
-      b.classList.toggle("is-active", act);
-      b.classList.toggle("btn-primary", act);
-    });
+  function syncStepFilterHighlight(status) {
     document.querySelectorAll("[data-pipe-step-filter]").forEach((step) => {
-      step.classList.toggle("is-active", step.dataset.pipeStepFilter === pipelineFilter);
+      step.classList.toggle("is-active", step.dataset.pipeStepFilter === status);
     });
-  }
-
-  const EMPTY_PIXEL = "data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7";
-
-  function renderPipelineXray(page) {
-    if (!pipeXrayTimeline) return;
-    // Reset two-step delete arm when switching selection
-    if (pipeXrayDeleteBtn) {
-      pipeXrayDeleteBtn.dataset.armed = "0";
-      pipeXrayDeleteBtn.textContent = "删废片";
-    }
-
-    if (!page) {
-      pipeXrayTitle.textContent = "请点击左侧照片查看加工详情";
-      if (pipeXrayVerdictPill) {
-        pipeXrayVerdictPill.className = "pipe-tag hidden";
-        pipeXrayVerdictPill.textContent = "";
-      }
-      if (pipeXrayCol) pipeXrayCol.classList.remove("is-ocr-focused");
-      if (pipeXrayRotLeftBtn) pipeXrayRotLeftBtn.disabled = true;
-      if (pipeXrayRotRightBtn) pipeXrayRotRightBtn.disabled = true;
-      pipeXrayApproveBtn.disabled = true;
-      pipeXrayJumpBtn.disabled = true;
-      pipeXrayDeleteBtn.disabled = true;
-      pipeXrayRawImg.src = EMPTY_PIXEL;
-      pipeXrayCleanImg.src = EMPTY_PIXEL;
-      pipeXrayTimeline.replaceChildren(
-        el("div", {
-          class: "pack-empty-state",
-          text: "左侧选择任意一页照片后，此处将对比展示「原图 vs 洗净成片」，并将重点空间留给完整离线文字识别输出。",
-        })
-      );
-      return;
-    }
-
-    selectedPipelinePageId = page.id;
-    const seqLabel = `#${page.seq_no}${page.spread_side !== "S" ? page.spread_side : ""}`;
-    pipeXrayTitle.textContent = `第 ${seqLabel} 页`;
-    if (pipeXrayRotLeftBtn) pipeXrayRotLeftBtn.disabled = false;
-    if (pipeXrayRotRightBtn) pipeXrayRotRightBtn.disabled = false;
-    pipeXrayApproveBtn.disabled = page.status === "APPROVED";
-    pipeXrayJumpBtn.disabled = false;
-    pipeXrayDeleteBtn.disabled = false;
-
-    const ts = encodeURIComponent(page.updated_at || "");
-    const rawUrl = `/api/pages/${page.id}/image/raw?t=${ts}`;
-    const cleanUrl = page.clean_path ? `/api/pages/${page.id}/image/clean?t=${ts}` : rawUrl;
-    pipeXrayRawImg.src = rawUrl;
-    pipeXrayCleanImg.src = cleanUrl;
-
-    // 1. Capture QA Step
-    const flags = Array.isArray(page.qa_flags) ? [...page.qa_flags] : [];
-    if (page.is_duplicate && !flags.includes("duplicate_page")) flags.push("duplicate_page");
-    const blurScore = Math.round(Number(page.blur_score || 0));
-    const brightScore = Math.round(Number(page.brightness || 0));
-    const qaChips = [
-      el("span", { class: "pipe-tag", text: `清晰度 ${blurScore}` }),
-      el("span", { class: "pipe-tag", text: `曝光 ${brightScore}` }),
-    ];
-    if (flags.length) {
-      flags.forEach((f) => qaChips.push(el("span", { class: "pipe-tag is-warn", text: translateFlag(f) })));
-    } else {
-      qaChips.push(el("span", { class: "pipe-tag is-ok", text: "清晰无重拍" }));
-    }
-
-    // 2. Cleaning Step
-    const cleanActionList = formatCleanActions(page);
-    const cleanChips = cleanActionList.map((c) => el("span", { class: c.cls, text: c.label }));
-    const meta = page.clean_meta || {};
-    const sizeNote =
-      meta.output_width && meta.output_height ? `${meta.output_width}×${meta.output_height}` : "";
-
-    // 3. Plain Verdict & Action Guidance
-    const ocrInfo = formatOcrSummary(page);
-    const engineInfo = formatOcrEngineInfo(page);
-    const fullTxt = String(page.clean_text || page.ocr_text || "").trim();
-
-    let verdictBadge = "加工中";
-    let verdictCls = "pipe-tag";
-    let verdictDesc = "后台正在依次执行图像清洗与离线文字识别，完成后会自动刷新状态。";
-    if (page.status === "READY" || page.status === "APPROVED" || page.status === "LLM_DONE") {
-      verdictBadge = page.status === "APPROVED" ? "✓ 已通过终审" : "✓ 质检合格";
-      verdictCls = "pipe-tag is-ok";
-      verdictDesc = "画面清晰且识别把握度达标，可直接进入「4 表格」分拣导出，无需额外处理。";
-    } else if (page.status === "NEEDS_REVIEW") {
-      verdictBadge = "⚠ 标黄待确认";
-      verdictCls = "pipe-tag is-warn";
-      const flagNames = flags.map((f) => translateFlag(f)).join(" / ");
-      verdictDesc = flagNames
-        ? `系统怀疑存在「${flagNames}」。如果是废片点上方「删废片」；如果肉眼看字没问题点「直接通过」即可放行。`
-        : "文字识别把握度偏低，建议点「精校对比」核对一遍文字，或确认后「直接通过」。";
-    } else if (page.status === "FAILED") {
-      verdictBadge = "✕ 处理失败";
-      verdictCls = "pipe-tag is-danger";
-      verdictDesc = page.error_msg || "识别或清洗过程意外中断，可点「重试失败页」或删掉重拍。";
-    }
-
-    if (pipeXrayVerdictPill) {
-      pipeXrayVerdictPill.className = verdictCls;
-      pipeXrayVerdictPill.textContent = verdictBadge;
-    }
-    if (pipeXrayCol) {
-      pipeXrayCol.classList.toggle("is-ocr-focused", xrayOcrExpanded);
-    }
-
-    // Merged & collapsible 1-line summary replacing the 3 redundant log boxes
-    const inlineParts = [`清晰度 ${blurScore}`];
-    cleanActionList.slice(0, 3).forEach((c) => inlineParts.push(c.label));
-    if (sizeNote) inlineParts.push(sizeNote);
-    const inlineMetrics = inlineParts.join(" · ");
-
-    let diagPillCls = "pipe-tag is-ok";
-    let diagPillText = "初检正常";
-    if (page.status === "FAILED") {
-      diagPillCls = "pipe-tag is-danger";
-      diagPillText = "识别中断";
-    } else if (flags.length) {
-      diagPillCls = "pipe-tag is-warn";
-      diagPillText =
-        flags.length > 1 ? `${translateFlag(flags[0])} +${flags.length - 1}` : translateFlag(flags[0]);
-    } else if (page.status === "NEEDS_REVIEW") {
-      diagPillCls = "pipe-tag is-warn";
-      diagPillText = "建议抽核";
-    }
-
-    const diagDetails = el("details", { class: "pipe-diag-details" }, [
-      el("summary", { class: "pipe-diag-summary" }, [
-        el("span", { class: "pipe-diag-label", text: "处理摘要" }),
-        el("span", { class: "pipe-diag-inline", text: inlineMetrics, title: inlineMetrics }),
-        el("span", { class: diagPillCls, text: diagPillText }),
-      ]),
-      el("div", { class: "pipe-diag-body" }, [
-        el("div", { class: "pipe-diag-row" }, [
-          el("span", { class: "pipe-diag-k", text: "初检" }),
-          el("div", { class: "pipe-tags" }, qaChips),
-        ]),
-        el("div", { class: "pipe-diag-row" }, [
-          el("span", { class: "pipe-diag-k", text: "清洗" }),
-          el("div", { class: "pipe-tags" }, [
-            ...cleanChips,
-            ...(sizeNote ? [el("span", { class: "pipe-tag mono", text: sizeNote })] : []),
-          ]),
-        ]),
-        el("div", { class: "pipe-diag-row" }, [
-          el("span", { class: "pipe-diag-k", text: "结论" }),
-          el("span", { class: "muted-note", style: "line-height:1.5;", text: verdictDesc }),
-        ]),
-      ]),
-    ]);
-    diagDetails.open = xrayDiagOpen;
-    diagDetails.addEventListener("toggle", () => {
-      xrayDiagOpen = diagDetails.open;
-    });
-
-    // Enlarged Hero OCR Output Section (full untruncated Markdown + copy + expand focus)
-    const ocrStore = el("textarea", {
-      id: "pipeXrayOcrRawStore",
-      class: "sr-only",
-      readonly: "readonly",
-      tabindex: "-1",
-      "aria-hidden": "true",
-    });
-    ocrStore.value = fullTxt;
-
-    const ocrBox = el("div", {
-      class: `pipe-ocr-body scroller${xrayOcrViewMode === "source" ? " is-source" : ""}`,
-    });
-    function fillOcrBox() {
-      ocrBox.classList.toggle("is-source", xrayOcrViewMode === "source");
-      if (xrayOcrViewMode === "source") {
-        ocrBox.textContent = fullTxt
-          ? fullTxt
-          : "（本页暂未识出有效正文，如原图确实模糊/空白可直接当废片删掉）";
-      } else {
-        ocrBox.replaceChildren(renderSafeMarkdown(fullTxt));
-      }
-    }
-    fillOcrBox();
-
-    const btnRender = el("button", {
-      type: "button",
-      class: `seg-btn${xrayOcrViewMode === "render" ? " is-active" : ""}`,
-      style: "padding:2px 8px;font-size:11.5px;",
-      text: "渲染",
-    });
-    const btnSource = el("button", {
-      type: "button",
-      class: `seg-btn${xrayOcrViewMode === "source" ? " is-active" : ""}`,
-      style: "padding:2px 8px;font-size:11.5px;",
-      text: "MD 源码",
-    });
-    btnRender.addEventListener("click", () => {
-      xrayOcrViewMode = "render";
-      btnRender.classList.add("is-active");
-      btnSource.classList.remove("is-active");
-      fillOcrBox();
-    });
-    btnSource.addEventListener("click", () => {
-      xrayOcrViewMode = "source";
-      btnSource.classList.add("is-active");
-      btnRender.classList.remove("is-active");
-      fillOcrBox();
-    });
-
-    const copyBtn = el("button", {
-      type: "button",
-      class: "btn btn-compact copy-button",
-      command: "--copy",
-      commandfor: "pipeXrayOcrRawStore",
-      title: "复制完整 Markdown 原文",
-      text: "复制 MD",
-    });
-    const copyTip = el("span", { class: "copy-tip", role: "status" });
-    const copyWrap = el("span", { class: "copy-wrap" }, [copyBtn, copyTip]);
-
-    const expandBtn = el("button", {
-      type: "button",
-      class: `btn btn-compact${xrayOcrExpanded ? " btn-primary" : ""}`,
-      text: xrayOcrExpanded ? "显示对比图" : "放大正文",
-      "aria-pressed": String(xrayOcrExpanded),
-    });
-    expandBtn.addEventListener("click", () => {
-      xrayOcrExpanded = !xrayOcrExpanded;
-      if (pipeXrayCol) pipeXrayCol.classList.toggle("is-ocr-focused", xrayOcrExpanded);
-      expandBtn.textContent = xrayOcrExpanded ? "显示对比图" : "放大正文";
-      expandBtn.classList.toggle("btn-primary", xrayOcrExpanded);
-      expandBtn.setAttribute("aria-pressed", String(xrayOcrExpanded));
-    });
-
-    const ocrHero = el("section", { class: "pipe-ocr-hero", "aria-label": "离线文字识别结果" }, [
-      el("div", { class: "pipe-ocr-head" }, [
-        el("div", { class: "toolbar-row", style: "gap:6px;min-width:0;flex-wrap:wrap;" }, [
-          el("span", { class: "pipe-ocr-title", text: "离线文字识别输出" }),
-          el("span", { class: engineInfo.cls, title: engineInfo.title, text: engineInfo.label }),
-          ...(engineInfo.hasLlmSheet
-            ? [el("span", { class: "pipe-tag is-accent", text: "AI 结构化填表" })]
-            : []),
-          el("span", { class: ocrInfo.cls, text: `${ocrInfo.badge} · ${ocrInfo.note}` }),
-        ]),
-        el("div", { class: "toolbar-row", style: "gap:6px;" }, [
-          el("div", { class: "segmented-bar", style: "padding:2px;" }, [btnRender, btnSource]),
-          copyWrap,
-          expandBtn,
-        ]),
-      ]),
-      ocrStore,
-      ocrBox,
-    ]);
-
-    pipeXrayTimeline.replaceChildren(diagDetails, ocrHero);
-  }
-
-  function renderPipelineList() {
-    if (!pipelinePagesList) return;
-    pipelinePagesList.replaceChildren();
-    if (!pipelineItems.length) {
-      pipelinePagesList.appendChild(
-        el("div", {
-          class: "pack-empty-state",
-          text:
-            pipelineFilter === "ALL"
-              ? "本书还没有拍照页面，请先前往「1 拍照」拍摄或拖入图片。"
-              : "当前筛选条件下暂无页面，点击上方「全部」查看整册实况。",
-        })
-      );
-      renderPipelineXray(null);
-      return;
-    }
-
-    for (const p of pipelineItems) {
-      const isSelected = selectedPipelinePageId === p.id;
-      const isWarn = p.status === "NEEDS_REVIEW" || p.status === "FAILED";
-      const rawTxt = String(p.clean_text || p.ocr_text || "").replace(/\s+/g, " ").trim();
-      const snippet = rawTxt ? rawTxt.slice(0, 38) : "（未识出文字或待处理）";
-
-      const flags = Array.isArray(p.qa_flags) ? [...p.qa_flags] : [];
-      if (p.is_duplicate && !flags.includes("duplicate_page")) flags.push("duplicate_page");
-
-      const stageTags = [
-        el("span", {
-          class: flags.length ? "pipe-tag is-warn" : "pipe-tag",
-          text: flags.length ? `${translateFlag(flags[0])}` : `清晰度 ${Math.round(Number(p.blur_score || 0))}`,
-        }),
-      ];
-      formatCleanActions(p)
-        .slice(0, 1)
-        .forEach((c) => stageTags.push(el("span", { class: c.cls, text: c.label })));
-
-      const ocrInfo = formatOcrSummary(p);
-      const engineInfo = formatOcrEngineInfo(p);
-      stageTags.push(el("span", { class: engineInfo.cls, title: engineInfo.title, text: engineInfo.label }));
-      if (engineInfo.hasLlmSheet) {
-        stageTags.push(el("span", { class: "pipe-tag is-accent", text: "AI 结构化填表" }));
-      }
-      stageTags.push(el("span", { class: ocrInfo.cls, text: `${ocrInfo.badge} · ${ocrInfo.note}` }));
-
-      let statusLabel = "加工中…";
-      let statusCls = "pipe-tag";
-      if (p.status === "READY" || p.status === "APPROVED" || p.status === "LLM_DONE") {
-        statusLabel = p.status === "APPROVED" ? "✓ 已通过" : "✓ 已合格";
-        statusCls = "pipe-tag is-ok";
-      } else if (p.status === "NEEDS_REVIEW") {
-        statusLabel = "⚠ 标黄待复核";
-        statusCls = "pipe-tag is-warn";
-      } else if (p.status === "FAILED") {
-        statusLabel = "✕ 失败";
-        statusCls = "pipe-tag is-danger";
-      }
-
-      const rowCard = el(
-        "button",
-        {
-          type: "button",
-          class: `pipe-row-card${isWarn ? " is-warn-row" : ""}${isSelected ? " is-selected" : ""}`,
-          onclick: () => {
-            selectedPipelinePageId = p.id;
-            renderPipelineList();
-            renderPipelineXray(p);
-          },
-        },
-        [
-          el("img", {
-            class: "pipe-row-thumb",
-            src: `/api/pages/${p.id}/image/thumb?t=${encodeURIComponent(p.updated_at || "")}`,
-            alt: `第 ${p.seq_no} 页`,
-            loading: "lazy",
-          }),
-          el("div", { class: "pipe-row-main" }, [
-            el("div", { class: "pipe-row-head" }, [
-              el("span", {
-                class: "pipe-row-title",
-                text: `#${p.seq_no}${p.spread_side !== "S" ? p.spread_side : ""} · ${translateStatus(p.status)}`,
-              }),
-              el("span", { class: "pipe-row-snippet", title: rawTxt || snippet, text: snippet }),
-            ]),
-            el("div", { class: "pipe-row-stages" }, stageTags),
-          ]),
-          el("div", { class: "pipe-row-side" }, [
-            el("span", { class: statusCls, text: statusLabel }),
-          ]),
-        ]
-      );
-      pipelinePagesList.appendChild(rowCard);
-    }
-  }
-
-  async function refreshPipelinePages(preferPageId = null) {
-    if (!state.currentBookId || !pipelinePagesList) return;
-    const qs = new URLSearchParams({
-      status: pipelineFilter,
-      order: "desc",
-      limit: "50",
-      offset: "0",
-    });
-    const data = await apiJson(`/api/books/${state.currentBookId}/pages?${qs.toString()}`);
-    pipelineItems = data.items || [];
-
-    if (!pipelineItems.length) {
-      selectedPipelinePageId = null;
-      renderPipelineList();
-      return;
-    }
-
-    let chosen = null;
-    if (preferPageId) {
-      chosen = pipelineItems.find((p) => p.id === preferPageId) || null;
-    }
-    if (!chosen && selectedPipelinePageId) {
-      chosen = pipelineItems.find((p) => p.id === selectedPipelinePageId) || null;
-    }
-    if (!chosen) {
-      chosen = pipelineItems[0];
-    }
-    selectedPipelinePageId = chosen.id;
-    renderPipelineList();
-    renderPipelineXray(chosen);
   }
 
   async function refreshJobs() {
@@ -903,9 +871,8 @@ export function createReviewAndPipelineController(state, callbacks) {
     if (!currentList.length) {
       reviewGallery.appendChild(
         el("div", {
-          style: "grid-column:1/-1;",
           class: "empty-state",
-          text: "当前筛选条件下暂无页面（可切换筛选标签，或在采集工位导入演示样书）",
+          text: "当前筛选条件下暂无页面（可切换上方状态筛选，或前往「1 拍照」采集）",
         })
       );
       return;
@@ -914,25 +881,37 @@ export function createReviewAndPipelineController(state, callbacks) {
     for (const p of currentList) {
       const isSelected = selectedPage && selectedPage.id === p.id;
       const isChecked = selectedPageIds.has(p.id);
-      const hasWarn = p.qa_flags && p.qa_flags.length > 0;
+      const flags = Array.isArray(p.qa_flags) ? [...p.qa_flags] : [];
+      if (p.is_duplicate && !flags.includes("duplicate_page")) flags.push("duplicate_page");
+      const hasWarn = flags.length > 0;
+
+      let tone = "muted";
+      if (p.status === "APPROVED" || p.status === "LLM_DONE") tone = "ok";
+      else if (p.status === "FAILED") tone = "danger";
+      else if (hasWarn || p.status === "NEEDS_REVIEW") tone = "warn";
+
+      const shortStatus = SHORT_STATUS_LABELS[p.status] || translateStatus(p.status).slice(0, 2);
+      const seqLabel = `#${p.seq_no}${p.spread_side !== "S" ? p.spread_side : ""}`;
+      let subTxt = translateStatus(p.status);
+      if (hasWarn) {
+        subTxt = translateFlag(flags[0]);
+      } else if (p.ocr_confidence) {
+        subTxt = `${(Number(p.ocr_confidence) * 100).toFixed(1)}% · 清晰${Math.round(Number(p.blur_score || 0))}`;
+      }
+
       const cardNodes = [
         el("img", {
+          class: "review-card-thumb",
           src: `/api/pages/${p.id}/image/thumb?t=${encodeURIComponent(p.updated_at || "")}`,
           loading: "lazy",
           alt: `第 ${p.seq_no} 页`,
         }),
-        el("div", { class: "review-card-info" }, [
-          el("span", { text: `#${p.seq_no}${p.spread_side !== "S" ? p.spread_side : ""}` }),
-          el("span", {
-            text: translateStatus(p.status),
-            style: `color:${
-              p.status === "APPROVED"
-                ? "var(--ok)"
-                : hasWarn || p.status === "NEEDS_REVIEW"
-                ? "var(--warn)"
-                : "var(--muted)"
-            }`,
-          }),
+        el("div", { class: "review-card-body" }, [
+          el("div", { class: "review-card-top" }, [
+            el("span", { class: "review-card-seq", text: seqLabel }),
+            el("span", { class: `review-card-badge is-${tone}`, text: shortStatus }),
+          ]),
+          el("div", { class: `review-card-sub${hasWarn ? " is-warn" : ""}`, text: subTxt, title: subTxt }),
         ]),
       ];
       if (multiSelectMode) {
@@ -990,19 +969,33 @@ export function createReviewAndPipelineController(state, callbacks) {
   function clearSelectedPage() {
     const blank = "data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7";
     selectedPage = null;
+    clearBboxHighlight({ clearPin: true });
+    setZoomScale(1.0);
     reviewImageTitle.textContent = "未选择页面";
+    if (reviewEnginePill) {
+      reviewEnginePill.className = "pipe-tag hidden";
+      reviewEnginePill.textContent = "";
+    }
     compareCleanImg.src = blank;
     compareRawImg.src = blank;
     reviewTextEditor.value = "";
+    if (reviewMdPreview) reviewMdPreview.replaceChildren(el("div", { class: "muted-note", text: "请从左侧选择页面开始复核" }));
     reviewConfBadge.textContent = "置信度 -";
     reviewConfBadge.className = "pill";
     reviewFlagRow.replaceChildren();
+    reviewFlagRow.classList.add("hidden");
+    if (reviewSyncHint) reviewSyncHint.classList.add("hidden");
     reviewCleanDiag.textContent = "请从左侧选择一个页面开始对比复核";
+    reviewCleanDiag.title = "";
   }
 
   async function selectPage(pageId) {
     const p = await apiJson(`/api/pages/${pageId}`);
     selectedPage = p;
+    clearBboxHighlight({ clearPin: true });
+    setZoomScale(1.0);
+    if (compareStage) compareStage.scrollTo(0, 0);
+
     reviewGallery.querySelectorAll(".review-card").forEach((card) => {
       const active = Number(card.dataset.pageId) === p.id;
       card.classList.toggle("is-selected", active);
@@ -1010,14 +1003,25 @@ export function createReviewAndPipelineController(state, callbacks) {
     });
 
     const ts = encodeURIComponent(p.updated_at || Date.now());
-    reviewImageTitle.textContent = `第 ${p.seq_no} 页 (${translateStatus(p.status)})`;
-    compareRawImg.src = `/api/pages/${p.id}/image/raw?t=${ts}`;
-    compareCleanImg.src = `/api/pages/${p.id}/image/clean?t=${ts}`;
+    reviewImageTitle.textContent = `第 #${p.seq_no}${p.spread_side !== "S" ? p.spread_side : ""} 页 · ${translateStatus(p.status)}`;
+    if (reviewEnginePill) {
+      const eng = formatOcrEngineInfo(p);
+      reviewEnginePill.className = eng.cls;
+      reviewEnginePill.textContent = eng.label;
+      reviewEnginePill.title = eng.title;
+    }
+
+    const rawUrl = `/api/pages/${p.id}/image/raw?t=${ts}`;
+    const cleanUrl = p.clean_path ? `/api/pages/${p.id}/image/clean?t=${ts}` : rawUrl;
+    compareRawImg.src = rawUrl;
+    compareCleanImg.src = cleanUrl;
     reviewTextEditor.value = p.clean_text || p.ocr_text || "";
     syncReviewTextView();
 
     const confPct = p.ocr_confidence ? `${(p.ocr_confidence * 100).toFixed(1)}%` : "-";
-    reviewConfBadge.textContent = `OCR 置信度 ${confPct} · 清晰度 ${Number(p.blur_score || 0).toFixed(0)}`;
+    const blurVal = Number(p.blur_score || 0).toFixed(0);
+    reviewConfBadge.textContent = `OCR ${confPct}`;
+    reviewConfBadge.title = `OCR 置信度 ${confPct} · 清晰度 ${blurVal}`;
     reviewConfBadge.className = `pill ${p.ocr_confidence >= 0.85 ? "pill-ok" : "pill-warn"}`;
 
     reviewFlagRow.replaceChildren();
@@ -1027,14 +1031,23 @@ export function createReviewAndPipelineController(state, callbacks) {
     if (p.llm_status === "DONE") {
       reviewFlagRow.appendChild(el("span", { class: "pill pill-ok", text: "LLM已精校" }));
     }
+    reviewFlagRow.classList.toggle("hidden", reviewFlagRow.childElementCount === 0);
+
+    if (reviewSyncHint) {
+      const hasBlocks = Array.isArray(p.ocr_blocks) && p.ocr_blocks.length > 0;
+      reviewSyncHint.classList.toggle("hidden", !hasBlocks || reviewTextViewMode !== "preview");
+    }
 
     const m = p.clean_meta || {};
     if (m.bg_uniformity_before !== undefined) {
       const rotPart = Number(m.rotated_deg || 0) % 360 !== 0 ? `转正:${m.rotated_deg}° · ` : "";
-      reviewCleanDiag.textContent =
+      const diagText =
         `${rotPart}切边:${m.cropped ? "是" : "否"} · 纠偏:${m.deskew_deg || 0}° · 展平:${m.dewarp_px || 0}px · 擦除手指:${m.fingers_removed || 0} · 底色波动:${m.bg_uniformity_before}→${m.bg_uniformity_after}`;
+      reviewCleanDiag.textContent = diagText;
+      reviewCleanDiag.title = diagText;
     } else {
       reviewCleanDiag.textContent = "等待或已完成本地图像清洗";
+      reviewCleanDiag.title = "";
     }
 
     if (m.profile && m.profile.enhance_mode) {
@@ -1048,7 +1061,14 @@ export function createReviewAndPipelineController(state, callbacks) {
     reviewTextEditor.classList.toggle("hidden", isPreview);
     reviewMdPreview.classList.toggle("hidden", !isPreview);
     if (isPreview) {
+      clearBboxHighlight({ clearPin: true });
       reviewMdPreview.replaceChildren(renderSafeMarkdown(reviewTextEditor.value));
+    } else {
+      clearBboxHighlight({ clearPin: true });
+    }
+    if (reviewSyncHint) {
+      const hasBlocks = Boolean(selectedPage && Array.isArray(selectedPage.ocr_blocks) && selectedPage.ocr_blocks.length > 0);
+      reviewSyncHint.classList.toggle("hidden", !isPreview || !hasBlocks);
     }
     document.querySelectorAll("[data-review-text-mode]").forEach((btn) => {
       btn.classList.toggle("is-active", btn.dataset.reviewTextMode === reviewTextViewMode);
@@ -1057,7 +1077,7 @@ export function createReviewAndPipelineController(state, callbacks) {
 
   document.querySelectorAll("[data-review-text-mode]").forEach((btn) => {
     btn.addEventListener("click", () => {
-      reviewTextViewMode = btn.dataset.reviewTextMode || "edit";
+      reviewTextViewMode = btn.dataset.reviewTextMode || "preview";
       syncReviewTextView();
     });
   });
@@ -1068,6 +1088,7 @@ export function createReviewAndPipelineController(state, callbacks) {
       document.querySelectorAll("[data-filter]").forEach((b) => b.classList.remove("is-active", "btn-primary"));
       btn.classList.add("is-active", "btn-primary");
       currentFilterStatus = btn.dataset.filter;
+      syncStepFilterHighlight(currentFilterStatus);
       currentOffset = 0;
       refreshPageList();
     });
@@ -1108,6 +1129,9 @@ export function createReviewAndPipelineController(state, callbacks) {
           body: { clean_text: reviewTextEditor.value },
         });
         selectedPage = updated;
+        if (reviewTextViewMode === "preview") {
+          reviewMdPreview.replaceChildren(renderSafeMarkdown(reviewTextEditor.value));
+        }
         showToast("校对文本已保存", "ok");
       } catch (err) {
         showToast(err.message, "danger");
@@ -1135,7 +1159,7 @@ export function createReviewAndPipelineController(state, callbacks) {
   document.getElementById("approvePageBtn").addEventListener("click", approveCurrent);
 
   const deletePageBtn = document.getElementById("deletePageBtn");
-  wireTwoStepAction(deletePageBtn, "确认删除此页？", async () => {
+  wireTwoStepAction(deletePageBtn, "确认删此页？", async () => {
     if (!selectedPage) return;
     const doomed = selectedPage;
     try {
@@ -1285,7 +1309,7 @@ export function createReviewAndPipelineController(state, callbacks) {
     });
   });
 
-  // Pipeline controls & feed filters
+  // Compact Pipeline Drawer & Batch Jobs Dialog Controls
   if (pausePipelineBtn) {
     pausePipelineBtn.addEventListener("click", async () => {
       await apiJson("/api/pipeline/pause", { method: "POST" });
@@ -1305,111 +1329,22 @@ export function createReviewAndPipelineController(state, callbacks) {
         const res = await apiJson(`/api/pipeline/retry-failed${qs}`, { method: "POST" });
         showToast(`已重新入队 ${res.retried} 个失败页面`, "ok");
         callbacks.onStatsNeeded();
-        refreshPipelinePages();
+        refreshPageList();
       });
     });
   }
 
-  document.querySelectorAll("[data-pipe-filter]").forEach((btn) => {
-    btn.addEventListener("click", () => {
-      setPipelineFilter(btn.dataset.pipeFilter);
-      refreshPipelinePages();
-    });
-  });
-
   document.querySelectorAll("[data-pipe-step-filter]").forEach((step) => {
     step.addEventListener("click", () => {
-      setPipelineFilter(step.dataset.pipeStepFilter);
-      refreshPipelinePages();
+      applyReviewFilter(step.dataset.pipeStepFilter || "ALL");
+      refreshPageList();
     });
   });
-
-  const refreshPipelinePagesBtn = document.getElementById("refreshPipelinePagesBtn");
-  if (refreshPipelinePagesBtn) {
-    refreshPipelinePagesBtn.addEventListener("click", () => {
-      refreshPipelinePages();
-      callbacks.onStatsNeeded();
-    });
-  }
 
   if (openJobsDialogBtn && pipelineJobsDialog) {
     openJobsDialogBtn.addEventListener("click", async () => {
       await refreshJobs();
       pipelineJobsDialog.showModal();
-    });
-  }
-
-  if (pipeXrayRotLeftBtn) {
-    pipeXrayRotLeftBtn.addEventListener("click", () => {
-      if (!selectedPipelinePageId) return;
-      handleRotatePage(pipeXrayRotLeftBtn, selectedPipelinePageId, -90, async (updated) => {
-        await refreshPipelinePages(updated.id);
-      });
-    });
-  }
-
-  if (pipeXrayRotRightBtn) {
-    pipeXrayRotRightBtn.addEventListener("click", () => {
-      if (!selectedPipelinePageId) return;
-      handleRotatePage(pipeXrayRotRightBtn, selectedPipelinePageId, 90, async (updated) => {
-        await refreshPipelinePages(updated.id);
-      });
-    });
-  }
-
-  if (pipeXrayApproveBtn) {
-    pipeXrayApproveBtn.addEventListener("click", async () => {
-      if (!selectedPipelinePageId) return;
-      await withButtonLoading(pipeXrayApproveBtn, "处理中...", async () => {
-        try {
-          await apiJson(`/api/pages/${selectedPipelinePageId}`, {
-            method: "PATCH",
-            body: { status: "APPROVED" },
-          });
-          showToast("已通过本页质检", "ok");
-          await refreshPipelinePages(selectedPipelinePageId);
-          if (callbacks.onStatsNeeded) callbacks.onStatsNeeded();
-        } catch (err) {
-          showToast(err.message, "danger");
-        }
-      });
-    });
-  }
-
-  if (pipeXrayJumpBtn) {
-    pipeXrayJumpBtn.addEventListener("click", () => {
-      if (!selectedPipelinePageId) return;
-      if (callbacks.onJumpToReview) callbacks.onJumpToReview(selectedPipelinePageId, "ALL");
-    });
-  }
-
-  if (pipeXrayDeleteBtn) {
-    wireTwoStepAction(pipeXrayDeleteBtn, "确认删废？", async () => {
-      if (!selectedPipelinePageId) return;
-      try {
-        const curIdx = pipelineItems.findIndex((x) => x.id === selectedPipelinePageId);
-        const nextCandidate = pipelineItems[curIdx + 1] || pipelineItems[curIdx - 1] || null;
-        await apiJson(`/api/pages/${selectedPipelinePageId}`, { method: "DELETE" });
-        await refreshPipelinePages(nextCandidate ? nextCandidate.id : null);
-        if (callbacks.onPagesChanged) callbacks.onPagesChanged();
-        showToast("已删除废片并清理磁盘文件", "ok");
-      } catch (err) {
-        showToast(err.message, "danger");
-      }
-    });
-  }
-
-  if (pipelineNextStepBtn) {
-    pipelineNextStepBtn.addEventListener("click", () => {
-      if (nextStepAction === "capture" && callbacks.onJumpToTab) {
-        callbacks.onJumpToTab("capture");
-      } else if (nextStepAction === "dataclean" && callbacks.onJumpToTab) {
-        callbacks.onJumpToTab("dataclean");
-      } else if (nextStepAction === "review_needs" && callbacks.onJumpToReview) {
-        callbacks.onJumpToReview(null, "NEEDS_REVIEW");
-      } else if (callbacks.onJumpToReview) {
-        callbacks.onJumpToReview(null, "ALL");
-      }
     });
   }
 
@@ -1421,6 +1356,7 @@ export function createReviewAndPipelineController(state, callbacks) {
       b.classList.toggle("is-active", act);
       b.classList.toggle("btn-primary", act);
     });
+    syncStepFilterHighlight(currentFilterStatus);
   }
 
   // Export triggers
@@ -1471,15 +1407,17 @@ export function createReviewAndPipelineController(state, callbacks) {
     selectPage(currentList[nextIdx].id);
   }
 
+  setImageMode("clean");
+
   return {
     renderStats,
     refreshJobs,
-    refreshPipelinePages,
     applyReviewFilter,
     refreshPageList,
     selectPage,
     approveCurrent,
     stepSelection,
+    clearPinnedBbox: () => clearBboxHighlight({ clearPin: true }),
     getSelectedPageId: () => (selectedPage ? selectedPage.id : null),
   };
 }

@@ -249,26 +249,31 @@ if (deactivateLicenseBtn) {
 function updateTabBadges(bookStats) {
   const b = bookStats || {};
   const capBadge = document.getElementById("tabBadgeCapture");
-  const pipeBadge = document.getElementById("tabBadgePipeline");
   const revBadge = document.getElementById("tabBadgeReview");
 
   if (capBadge) {
     capBadge.textContent = String(b.total || 0);
   }
   const activeQueue = (b.pending_clean || 0) + (b.pending_ocr || 0) + (b.pending_llm || 0);
-  if (pipeBadge) {
-    pipeBadge.textContent = String(activeQueue);
-    pipeBadge.classList.toggle("hidden", activeQueue === 0);
-  }
   const revCount = (b.needs_review || 0) + (b.failed || 0);
   if (revBadge) {
-    revBadge.textContent = String(revCount);
-    revBadge.classList.toggle("hidden", revCount === 0);
-    revBadge.classList.toggle("is-warn", revCount > 0);
+    if (revCount > 0) {
+      revBadge.textContent = String(revCount);
+      revBadge.classList.remove("hidden");
+      revBadge.classList.add("is-warn");
+    } else if (activeQueue > 0) {
+      revBadge.textContent = String(activeQueue);
+      revBadge.classList.remove("hidden", "is-warn");
+    } else {
+      revBadge.textContent = "0";
+      revBadge.classList.add("hidden");
+      revBadge.classList.remove("is-warn");
+    }
   }
 }
 
 function switchTab(tabKey, { focusTab = false, skipRefresh = false } = {}) {
+  if (tabKey === "pipeline") tabKey = "review";
   state.activeTab = tabKey;
   tabBtns.forEach((b) => {
     const active = b.dataset.tab === tabKey;
@@ -283,20 +288,31 @@ function switchTab(tabKey, { focusTab = false, skipRefresh = false } = {}) {
   document.querySelectorAll(".tab-panel").forEach((p) => {
     p.classList.toggle("is-active", p.id === `tab-${tabKey}`);
   });
-  if (tabKey === "review" && reviewCtrl && !skipRefresh) reviewCtrl.refreshPageList();
+  if (tabKey === "review" && reviewCtrl) {
+    refreshStats();
+    reviewCtrl.refreshJobs();
+    if (!skipRefresh) reviewCtrl.refreshPageList();
+  }
   if (tabKey === "dataclean" && dataCleanCtrl) {
     dataCleanCtrl.loadTemplates().then(() => dataCleanCtrl.refreshPreview());
   }
-  if ((tabKey === "pipeline" || tabKey === "export") && reviewCtrl) {
+  if (tabKey === "export" && reviewCtrl) {
     refreshStats();
     reviewCtrl.refreshJobs();
-    if (tabKey === "pipeline") {
-      reviewCtrl.refreshPipelinePages();
-    }
-    if (tabKey === "export" && dataCleanCtrl) {
+    if (dataCleanCtrl) {
       dataCleanCtrl.loadTemplates().then(() => dataCleanCtrl.refreshPreview());
     }
   }
+}
+
+if (pipelinePill) {
+  pipelinePill.addEventListener("click", () => switchTab("review"));
+  pipelinePill.addEventListener("keydown", (e) => {
+    if (e.key === "Enter" || e.key === " ") {
+      e.preventDefault();
+      switchTab("review");
+    }
+  });
 }
 
 tabBtns.forEach((b, idx) => {
@@ -366,14 +382,13 @@ bookSelect.addEventListener("change", async () => {
   if (activeBook) captureCtrl.applyBookProfile(activeBook.profile);
   captureCtrl.refreshMobileQr();
   await Promise.all([refreshStats(), captureCtrl.loadRecentFromBook()]);
-  if (state.activeTab === "review") await reviewCtrl.refreshPageList();
-  if ((state.activeTab === "dataclean" || state.activeTab === "export") && dataCleanCtrl) {
-    await dataCleanCtrl.refreshPreview();
-  }
-  if (state.activeTab === "pipeline") {
-    await Promise.all([reviewCtrl.refreshJobs(), reviewCtrl.refreshPipelinePages()]);
+  if (state.activeTab === "review") {
+    await Promise.all([reviewCtrl.refreshJobs(), reviewCtrl.refreshPageList()]);
   } else if (state.activeTab === "export") {
     await reviewCtrl.refreshJobs();
+  }
+  if ((state.activeTab === "dataclean" || state.activeTab === "export") && dataCleanCtrl) {
+    await dataCleanCtrl.refreshPreview();
   }
 });
 
@@ -383,14 +398,13 @@ wireTwoStepAction(document.getElementById("deleteBookBtn"), "确认删整本？"
     const res = await apiJson(`/api/books/${state.currentBookId}`, { method: "DELETE" });
     await refreshBooks(res.fallback_book_id || null);
     await Promise.all([refreshStats(), captureCtrl.loadRecentFromBook()]);
-    if (state.activeTab === "review") await reviewCtrl.refreshPageList();
-    if ((state.activeTab === "dataclean" || state.activeTab === "export") && dataCleanCtrl) {
-      await dataCleanCtrl.refreshPreview();
-    }
-    if (state.activeTab === "pipeline") {
-      await Promise.all([reviewCtrl.refreshJobs(), reviewCtrl.refreshPipelinePages()]);
+    if (state.activeTab === "review") {
+      await Promise.all([reviewCtrl.refreshJobs(), reviewCtrl.refreshPageList()]);
     } else if (state.activeTab === "export") {
       await reviewCtrl.refreshJobs();
+    }
+    if ((state.activeTab === "dataclean" || state.activeTab === "export") && dataCleanCtrl) {
+      await dataCleanCtrl.refreshPreview();
     }
     showToast("已删除书目并清理关联文件", "ok");
   } catch (err) {
@@ -897,7 +911,9 @@ document.addEventListener("keydown", (e) => {
       captureCtrl.undoLast();
     }
   } else if (state.activeTab === "review") {
-    if (e.key === "j" || e.key === "J" || e.key === "ArrowDown") {
+    if (e.key === "Escape" && reviewCtrl && reviewCtrl.clearPinnedBbox) {
+      reviewCtrl.clearPinnedBbox();
+    } else if (e.key === "j" || e.key === "J" || e.key === "ArrowDown") {
       e.preventDefault();
       reviewCtrl.stepSelection(1);
     } else if (e.key === "k" || e.key === "K" || e.key === "ArrowUp") {
@@ -952,10 +968,8 @@ function connectSse() {
       if (payload.type === "job_progress") {
         await reviewCtrl.refreshJobs();
       }
-      if (state.activeTab === "pipeline") {
-        await reviewCtrl.refreshPipelinePages();
-      }
       if (state.activeTab === "review") {
+        await reviewCtrl.refreshJobs();
         const curId = reviewCtrl.getSelectedPageId();
         await reviewCtrl.refreshPageList(curId);
       }
