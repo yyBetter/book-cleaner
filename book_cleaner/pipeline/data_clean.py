@@ -5,8 +5,10 @@ from __future__ import annotations
 import hashlib
 import math
 import re
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from typing import Any
+
+from book_cleaner.pipeline.pii_redactor import parse_custom_redact_terms
 
 
 _ILLEGAL_XML_RE = re.compile(r"[\x00-\x08\x0b\x0c\x0e-\x1f\x7f]")
@@ -50,6 +52,8 @@ class CleaningRules:
     deduplicate_entries: bool = True
     min_confidence_warn: float = 0.82
     catboost_mode: bool = False
+    redact_pii: bool = False
+    custom_redact_terms: list[str] = field(default_factory=list)
 
     @classmethod
     def from_dict(cls, data: dict[str, Any] | None) -> "CleaningRules":
@@ -63,6 +67,8 @@ class CleaningRules:
             deduplicate_entries=bool(data.get("deduplicate_entries", True)),
             min_confidence_warn=float(data.get("min_confidence_warn", 0.82)),
             catboost_mode=bool(data.get("catboost_mode", False)),
+            redact_pii=bool(data.get("redact_pii", False)),
+            custom_redact_terms=parse_custom_redact_terms(data.get("custom_redact_terms")),
         )
 
 

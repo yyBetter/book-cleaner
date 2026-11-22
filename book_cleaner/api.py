@@ -87,6 +87,8 @@ class ImportFolderRequest(BaseModel):
 class ExportRequest(BaseModel):
     format: str = "pdf"
     template_id: int | None = None
+    redact_pii: bool | None = None
+    custom_redact_terms: list[str] | str | None = None
 
 
 class ExcelTemplateCreate(BaseModel):
@@ -900,6 +902,7 @@ def create_app(
                         "_page_no": meta.get("page_no", 0),
                         "_source": meta.get("source", "offline"),
                         "_warnings": meta.get("warnings", []),
+                        "_cell_alerts": meta.get("cell_alerts", {}),
                         "_ocr_confidence": meta.get("ocr_confidence", 0.0),
                     }
                 )
@@ -994,7 +997,12 @@ def create_app(
         if not txt:
             raise HTTPException(status_code=400, detail="当前页面尚未完成 OCR 识别或正文为空")
         try:
-            rows, meta = extract_sheet_rows_with_llm(txt, sheet_def, cfg)
+            rows, meta = extract_sheet_rows_with_llm(
+                txt,
+                sheet_def,
+                cfg,
+                ocr_blocks=page.get("ocr_blocks") or [],
+            )
         except Exception as exc:
             raise HTTPException(status_code=502, detail=f"大模型填表调用失败: {exc}") from exc
 
@@ -1005,6 +1013,12 @@ def create_app(
             sheet_id=body.sheet_id,
             llm_rows=rows,
         )
+        merged_meta = {
+            **(page.get("clean_meta") or {}),
+            "llm_sheet_extracted": True,
+            "llm_sheet_model": str(meta.get("model", "")),
+        }
+        db.update_page(page_id, clean_meta=merged_meta)
         return {"rows": rows, "count": len(rows), "meta": meta}
 
     @app.post("/api/books/{book_id}/data-clean/run")
@@ -1046,7 +1060,13 @@ def create_app(
         fmt = body.format.lower().strip()
         if fmt not in ("pdf", "markdown", "md", "epub", "jsonl", "xlsx", "excel"):
             raise HTTPException(status_code=400, detail=f"不支持的导出格式: {body.format}")
-        job = coordinator.start_export_job(book_id=book_id, fmt=fmt, template_id=body.template_id)
+        job = coordinator.start_export_job(
+            book_id=book_id,
+            fmt=fmt,
+            template_id=body.template_id,
+            redact_pii=body.redact_pii,
+            custom_redact_terms=body.custom_redact_terms,
+        )
         return {"job": job}
 
     @app.get("/api/jobs")

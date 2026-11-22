@@ -68,6 +68,8 @@ class OCRResult:
     avg_confidence: float = 0.0
     min_confidence: float = 0.0
     flags: list[str] = field(default_factory=list)
+    engine_used: str = "rapidocr"
+    upgrade_reasons: list[str] = field(default_factory=list)
 
     def to_dict(self) -> dict[str, Any]:
         return {
@@ -77,7 +79,79 @@ class OCRResult:
             "avg_confidence": round(self.avg_confidence, 4),
             "min_confidence": round(self.min_confidence, 4),
             "flags": list(self.flags),
+            "engine_used": self.engine_used,
+            "upgrade_reasons": list(self.upgrade_reasons),
         }
+
+
+def build_coordinate_anchor_text(
+    blocks: list[OCRBlock] | list[dict[str, Any]] | None,
+    *,
+    max_blocks: int = 80,
+    max_chars: int = 3200,
+) -> str:
+    """Serialize OCR boxes into compact olmOCR-style [x0,y0,x1,y1] coordinate anchors."""
+    if not blocks:
+        return ""
+
+    parsed: list[tuple[float, float, float, float, str, float]] = []
+    for item in blocks:
+        if isinstance(item, OCRBlock):
+            txt = item.text.strip()
+            if not txt or not item.bbox:
+                continue
+            parsed.append(
+                (
+                    item.x_min,
+                    item.y_min,
+                    item.x_max,
+                    item.y_max,
+                    txt,
+                    float(item.confidence),
+                )
+            )
+        elif isinstance(item, dict):
+            bbox = item.get("bbox") or []
+            txt = str(item.get("text") or "").strip()
+            if not txt or len(bbox) < 4:
+                continue
+            xs = [float(pt[0]) for pt in bbox]
+            ys = [float(pt[1]) for pt in bbox]
+            parsed.append(
+                (
+                    min(xs),
+                    min(ys),
+                    max(xs),
+                    max(ys),
+                    txt,
+                    float(item.get("confidence", 0.0)),
+                )
+            )
+
+    if not parsed:
+        return ""
+
+    parsed.sort(key=lambda t: (int(t[1] // 14), t[0]))
+    lines: list[str] = []
+    char_count = 0
+    truncated = False
+
+    for x0, y0, x1, y1, txt, conf in parsed:
+        if len(lines) >= max_blocks:
+            truncated = True
+            break
+        clean_txt = re.sub(r"\s+", " ", txt)
+        low_tag = " [low_conf]" if (0.0 < conf < 0.80) else ""
+        line = f"[{int(round(x0))},{int(round(y0))},{int(round(x1))},{int(round(y1))}] {clean_txt}{low_tag}"
+        if lines and char_count + len(line) + 1 > max_chars:
+            truncated = True
+            break
+        lines.append(line)
+        char_count += len(line) + 1
+
+    if truncated:
+        lines.append("...(truncated)")
+    return "\n".join(lines)
 
 
 def _smart_join(left: str, right: str) -> str:

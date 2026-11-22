@@ -31,6 +31,7 @@ from book_cleaner.pipeline.image_clean import CleanProfile, clean_page_image, sp
 from book_cleaner.pipeline.llm_clean import LLMConfig, clean_text_with_llm, should_run_llm
 from book_cleaner.pipeline.ocr_router import SmartOCRRouter
 from book_cleaner.pipeline.offline_ocr_hub import OfflineOCRHub, is_local_only_url
+from book_cleaner.pipeline.pii_redactor import ConsistentPIIRedactor, parse_custom_redact_terms
 from book_cleaner.pipeline.qa import evaluate_capture_qa
 from book_cleaner.storage import (
     ShardedStorage,
@@ -459,12 +460,21 @@ class PipelineCoordinator:
                 next_status = "NEEDS_REVIEW" if merged_flags else "READY"
                 llm_status = "SKIPPED" if llm_cfg.mode != "off" else "OFF"
 
+            engine_used = str(getattr(ocr_res, "engine_used", "rapidocr") or "rapidocr")
+            upgrade_reasons = list(getattr(ocr_res, "upgrade_reasons", []) or [])
+            merged_meta = {
+                **(page.get("clean_meta") or {}),
+                "ocr_engine_used": engine_used,
+                "ocr_upgrade_reasons": upgrade_reasons,
+            }
+
             updated = self.db.update_page(
                 page_id,
                 ocr_confidence=ocr_res.avg_confidence,
                 ocr_text=ocr_res.formatted_text,
                 clean_text=ocr_res.formatted_text,
                 ocr_blocks=[b.to_dict() for b in ocr_res.blocks],
+                clean_meta=merged_meta,
                 qa_flags=merged_flags,
                 llm_status=llm_status,
                 status=next_status,
@@ -482,6 +492,7 @@ class PipelineCoordinator:
                     "page_id": page_id,
                     "status": next_status,
                     "ocr_confidence": updated["ocr_confidence"],
+                    "ocr_engine_used": engine_used,
                 },
             )
             return updated
@@ -813,6 +824,8 @@ class PipelineCoordinator:
         fmt: str,
         out_path: Path | None = None,
         template_id: int | None = None,
+        redact_pii: bool | None = None,
+        custom_redact_terms: list[str] | str | None = None,
     ) -> Path:
         book = self.db.get_book(book_id)
         if book is None:
@@ -837,12 +850,19 @@ class PipelineCoordinator:
             ts = time.strftime("%Y%m%d_%H%M%S")
             out_path = self.storage.export_dir(book_id) / f"{safe_title}_{ts}{ext_map[fmt_norm]}"
 
+        template = (
+            self.db.get_excel_template(template_id)
+            if template_id is not None
+            else self.db.get_default_excel_template()
+        )
+        rules_dict = (template.get("rules") if template else {}) or {}
+        eff_redact = bool(rules_dict.get("redact_pii", False)) if redact_pii is None else bool(redact_pii)
+        eff_terms = parse_custom_redact_terms(
+            rules_dict.get("custom_redact_terms") if custom_redact_terms is None else custom_redact_terms
+        )
+        redactor = ConsistentPIIRedactor(enabled=True, custom_terms=eff_terms) if eff_redact else None
+
         if fmt_norm in ("xlsx", "excel"):
-            template = (
-                self.db.get_excel_template(template_id)
-                if template_id is not None
-                else self.db.get_default_excel_template()
-            )
             assert template is not None
             if gate_meta["limited_by_license"]:
                 structured_rows, summary = extract_book_structured_data(book, pages, template)
@@ -858,15 +878,17 @@ class PipelineCoordinator:
                 out_path,
                 pages=pages,
                 page_assignments=page_assignments,
+                redact_pii=eff_redact,
+                custom_redact_terms=eff_terms,
             )
 
         if fmt_norm == "pdf":
             return export_searchable_pdf(book, pages, out_path, self.storage)
         if fmt_norm in ("markdown", "md"):
-            return export_markdown(book, pages, out_path)
+            return export_markdown(book, pages, out_path, redactor=redactor)
         if fmt_norm == "epub":
             return export_epub(book, pages, out_path)
-        return export_jsonl(book, pages, out_path)
+        return export_jsonl(book, pages, out_path, redactor=redactor)
 
     def start_export_job(
         self,
@@ -874,23 +896,38 @@ class PipelineCoordinator:
         book_id: int,
         fmt: str,
         template_id: int | None = None,
+        redact_pii: bool | None = None,
+        custom_redact_terms: list[str] | str | None = None,
     ) -> dict[str, Any]:
         book = self.db.get_book(book_id)
         if book is None:
             raise KeyError(f"Book {book_id} not found")
         raw_pages = self.db.list_export_pages(book_id)
         gated_pages, gate_meta = self._apply_export_license_gate(raw_pages)
+        parsed_terms = parse_custom_redact_terms(custom_redact_terms) if custom_redact_terms is not None else None
         job = self.db.create_job(
             job_type=f"EXPORT_{fmt.upper()}",
             book_id=book_id,
             total_items=len(gated_pages),
-            params={"format": fmt, "template_id": template_id, **gate_meta},
+            params={
+                "format": fmt,
+                "template_id": template_id,
+                **gate_meta,
+                "redact_pii": redact_pii,
+                "custom_redact_terms": parsed_terms or [],
+            },
         )
 
         def _runner() -> None:
             try:
                 self.db.update_job(job["id"], status="RUNNING")
-                out = self.run_export_sync(book_id=book_id, fmt=fmt, template_id=template_id)
+                out = self.run_export_sync(
+                    book_id=book_id,
+                    fmt=fmt,
+                    template_id=template_id,
+                    redact_pii=redact_pii,
+                    custom_redact_terms=parsed_terms,
+                )
                 self.db.update_job(
                     job["id"],
                     status="DONE",

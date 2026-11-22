@@ -139,9 +139,38 @@ export function createDataCleanController(state, callbacks) {
   const cleanRulesDialog = document.getElementById("cleanRulesDialog");
   const addSheetDialog = document.getElementById("addSheetDialog");
   const ruleCatboostChk = document.getElementById("ruleCatboostModeChk");
+  const ruleRedactPiiChk = document.getElementById("ruleRedactPiiChk");
+  const ruleCustomRedactInput = document.getElementById("ruleCustomRedactInput");
+  const exportRedactPiiChk = document.getElementById("exportRedactPiiChk");
+  const exportCustomRedactInput = document.getElementById("exportCustomRedactInput");
+  const exportRedactBadge = document.getElementById("exportRedactBadge");
   enableDialogLightDismissFallback(newTemplateDialog);
   enableDialogLightDismissFallback(cleanRulesDialog);
   enableDialogLightDismissFallback(addSheetDialog);
+
+  function parseRedactTerms(raw) {
+    if (Array.isArray(raw)) {
+      return raw.map((x) => String(x || "").trim()).filter(Boolean);
+    }
+    return String(raw || "")
+      .split(/[,，;；\r\n]+/)
+      .map((x) => x.trim())
+      .filter(Boolean);
+  }
+
+  function syncPrivacyUi(enabled, terms) {
+    const isOn = Boolean(enabled);
+    const termsArr = parseRedactTerms(terms);
+    const termsStr = termsArr.join(", ");
+    if (ruleRedactPiiChk) ruleRedactPiiChk.checked = isOn;
+    if (ruleCustomRedactInput) ruleCustomRedactInput.value = termsStr;
+    if (exportRedactPiiChk) exportRedactPiiChk.checked = isOn;
+    if (exportCustomRedactInput) exportCustomRedactInput.value = termsStr;
+    if (exportRedactBadge) {
+      exportRedactBadge.textContent = isOn ? "已开启脱敏" : "未开启";
+      exportRedactBadge.className = `pill ${isOn ? "pill-ok" : ""}`;
+    }
+  }
 
   function isPackTemplate(tpl = activeTemplate) {
     return Boolean(tpl && Array.isArray(tpl.sheets) && tpl.sheets.length > 0);
@@ -157,6 +186,32 @@ export function createDataCleanController(state, callbacks) {
     ruleCatboostChk.addEventListener("change", () => syncCatboostHint(ruleCatboostChk.checked));
   }
 
+  async function savePrivacySettingFromExportTab() {
+    const enabled = Boolean(exportRedactPiiChk && exportRedactPiiChk.checked);
+    const terms = parseRedactTerms(exportCustomRedactInput ? exportCustomRedactInput.value : "");
+    syncPrivacyUi(enabled, terms);
+    if (!activeTemplate) return;
+    try {
+      const updated = await apiJson(`/api/excel-templates/${activeTemplate.id}`, {
+        method: "PUT",
+        body: { rules: { ...readFormRules(), redact_pii: enabled, custom_redact_terms: terms } },
+      });
+      activeTemplate.rules = updated.rules;
+      const idx = templates.findIndex((t) => t.id === updated.id);
+      if (idx >= 0) templates[idx] = updated;
+      showToast(enabled ? "已开启导出前 PII 自动脱敏掩码" : "已关闭导出脱敏", "ok");
+    } catch (err) {
+      showToast(err.message, "danger");
+    }
+  }
+
+  if (exportRedactPiiChk) {
+    exportRedactPiiChk.addEventListener("change", savePrivacySettingFromExportTab);
+  }
+  if (exportCustomRedactInput) {
+    exportCustomRedactInput.addEventListener("change", savePrivacySettingFromExportTab);
+  }
+
   function applyTemplateToForm(tpl) {
     if (!tpl) return;
     if (entrySheetInput) entrySheetInput.value = tpl.entry_sheet_name || "正文结构化条目";
@@ -170,6 +225,7 @@ export function createDataCleanController(state, callbacks) {
     document.getElementById("ruleMinConfInput").value = String(r.min_confidence_warn ?? 0.82);
     if (ruleCatboostChk) ruleCatboostChk.checked = Boolean(r.catboost_mode);
     syncCatboostHint(Boolean(r.catboost_mode));
+    syncPrivacyUi(Boolean(r.redact_pii), r.custom_redact_terms || []);
 
     editingColumns = (tpl.columns || []).map((c) => ({ ...c }));
     const isPack = isPackTemplate(tpl);
@@ -227,6 +283,8 @@ export function createDataCleanController(state, callbacks) {
       deduplicate_entries: document.getElementById("ruleDedupChk").checked,
       min_confidence_warn: Number(document.getElementById("ruleMinConfInput").value || 0.82),
       catboost_mode: Boolean(ruleCatboostChk && ruleCatboostChk.checked),
+      redact_pii: Boolean(ruleRedactPiiChk && ruleRedactPiiChk.checked),
+      custom_redact_terms: parseRedactTerms(ruleCustomRedactInput ? ruleCustomRedactInput.value : ""),
     };
   }
 
@@ -747,6 +805,16 @@ export function createDataCleanController(state, callbacks) {
         const tds = headers.map((h) => {
           const v = r[h];
           const isNull = v === null || v === undefined || v === "";
+          if (h === "review_required" && Number(v) === 1) {
+            return el(
+              "td",
+              {
+                class: "cell-alert-danger",
+                title: "该批次存在数值越界、突变或原页低置信告警，已隔离禁止回流训练集",
+              },
+              [el("span", { class: "cell-alert-badge", text: "1 · 拦截复核" })]
+            );
+          }
           return el("td", {
             class: `cell-trunc${isNull ? " muted-note" : ""}`,
             title: isNull ? "缺失保持空值 NaN（供 CatBoost 原生处理）" : String(v),
@@ -797,20 +865,40 @@ export function createDataCleanController(state, callbacks) {
 
     const tbody = el("tbody");
     for (const r of rows) {
+      const cellAlerts = r._cell_alerts || {};
       const tds = fields.map((f) => {
         const v = r[f.key];
         const isNull = v === null || v === undefined || v === "";
+        const alertMsg = cellAlerts[f.key];
+        if (alertMsg) {
+          const badgeTxt = alertMsg.includes("越界") ? "越界" : alertMsg.includes("离群") ? "突变" : "告警";
+          return el(
+            "td",
+            {
+              class: "cell-alert-danger",
+              title: alertMsg,
+            },
+            [
+              el("span", { text: isNull ? "空值" : String(v) }),
+              el("span", { class: "cell-alert-badge", text: badgeTxt }),
+            ]
+          );
+        }
         return el("td", {
           class: `cell-trunc${isNull ? " muted-note" : ""}`,
           title: isNull ? "空" : String(v),
           text: isNull ? "-" : String(v),
         });
       });
+      const warnTexts = r._warnings || [];
       tds.push(
         el("td", { text: `#${r._page_no || 0}` }),
-        el("td", { text: r._source === "llm" ? "AI填表" : "离线匹配" })
+        el("td", {
+          title: warnTexts.join("；") || "",
+          text: r._source === "llm" ? "AI填表" : "离线匹配",
+        })
       );
-      tbody.appendChild(el("tr", { class: (r._warnings || []).length ? "row-warn" : "" }, tds));
+      tbody.appendChild(el("tr", { class: warnTexts.length ? "row-warn" : "" }, tds));
     }
 
     subPreviewPane.appendChild(
@@ -840,6 +928,9 @@ export function createDataCleanController(state, callbacks) {
         keywordsStr: (liveSheet.match_keywords || []).join(", "),
         fields: (liveSheet.fields || []).map((f) => ({
           ...f,
+          min_val: f.min_val ?? null,
+          max_val: f.max_val ?? null,
+          require_not_null: Boolean(f.require_not_null),
           aliasesStr: (f.aliases || []).join(", "),
         })),
       };
@@ -872,6 +963,13 @@ export function createDataCleanController(state, callbacks) {
       schemaDraftSheet.keywordsStr = kwInp.value;
     });
 
+    function parseOptionalBound(rawVal) {
+      const s = String(rawVal ?? "").trim();
+      if (!s) return null;
+      const n = Number(s);
+      return Number.isFinite(n) ? n : null;
+    }
+
     const fieldListBox = el("div", { class: "pack-field-list" });
     function redrawFields() {
       fieldListBox.replaceChildren();
@@ -888,7 +986,40 @@ export function createDataCleanController(state, callbacks) {
         roleSel.value = ROLE_OPTIONS.some((o) => o.value === f.role) ? f.role : "num_feature";
         roleSel.addEventListener("change", () => {
           f.role = roleSel.value;
+          redrawFields();
         });
+
+        const isNumericRole = f.role === "num_feature" || f.role === "target_y";
+        let minControl;
+        let maxControl;
+        if (isNumericRole) {
+          minControl = el("input", {
+            class: "input pack-bound-inp",
+            type: "number",
+            step: "any",
+            value: f.min_val !== null && f.min_val !== undefined ? String(f.min_val) : "",
+            placeholder: "不限",
+            "aria-label": `${f.name || "字段"} 最小值`,
+          });
+          minControl.addEventListener("input", () => {
+            f.min_val = parseOptionalBound(minControl.value);
+          });
+
+          maxControl = el("input", {
+            class: "input pack-bound-inp",
+            type: "number",
+            step: "any",
+            value: f.max_val !== null && f.max_val !== undefined ? String(f.max_val) : "",
+            placeholder: "不限",
+            "aria-label": `${f.name || "字段"} 最大值`,
+          });
+          maxControl.addEventListener("input", () => {
+            f.max_val = parseOptionalBound(maxControl.value);
+          });
+        } else {
+          minControl = el("span", { class: "pack-bound-na muted-note", text: "—" });
+          maxControl = el("span", { class: "pack-bound-na muted-note", text: "—" });
+        }
 
         const aliasInp = el("input", {
           class: "input",
@@ -910,7 +1041,9 @@ export function createDataCleanController(state, callbacks) {
           },
         });
 
-        fieldListBox.appendChild(el("div", { class: "pack-field-row" }, [fnInp, roleSel, aliasInp, delFieldBtn]));
+        fieldListBox.appendChild(
+          el("div", { class: "pack-field-row" }, [fnInp, roleSel, minControl, maxControl, aliasInp, delFieldBtn])
+        );
       });
     }
     redrawFields();
@@ -925,6 +1058,9 @@ export function createDataCleanController(state, callbacks) {
           name: `新字段${schemaDraftSheet.fields.length + 1}`,
           role: "num_feature",
           agg: schemaDraftSheet.mode === "table" ? "stats" : "last",
+          min_val: null,
+          max_val: null,
+          require_not_null: false,
           aliasesStr: "",
         });
         redrawFields();
@@ -968,16 +1104,23 @@ export function createDataCleanController(state, callbacks) {
             .filter(Boolean);
           const cleanFields = schemaDraftSheet.fields
             .filter((f) => (f.name || "").trim())
-            .map((f, i) => ({
-              key: f.key || `f_${i + 1}`,
-              name: f.name.trim(),
-              role: f.role || "num_feature",
-              agg: f.role === "num_feature" && schemaDraftSheet.mode === "table" ? "stats" : f.role === "text_feature" ? "join" : "last",
-              aliases: (f.aliasesStr || "")
-                .split(/[,，]+/)
-                .map((a) => a.trim())
-                .filter(Boolean),
-            }));
+            .map((f, i) => {
+              const role = f.role || "num_feature";
+              const isNum = role === "num_feature" || role === "target_y";
+              return {
+                key: f.key || `f_${i + 1}`,
+                name: f.name.trim(),
+                role,
+                agg: role === "num_feature" && schemaDraftSheet.mode === "table" ? "stats" : role === "text_feature" ? "join" : "last",
+                min_val: isNum ? f.min_val ?? null : null,
+                max_val: isNum ? f.max_val ?? null : null,
+                require_not_null: Boolean(f.require_not_null),
+                aliases: (f.aliasesStr || "")
+                  .split(/[,，]+/)
+                  .map((a) => a.trim())
+                  .filter(Boolean),
+              };
+            });
           const updatedSheets = (activeTemplate.sheets || []).map((s) =>
             s.sheet_id === schemaDraftSheet.sheet_id
               ? {
@@ -1017,6 +1160,8 @@ export function createDataCleanController(state, callbacks) {
         el("div", { class: "pack-field-head", "aria-hidden": "true" }, [
           el("span", { text: "Excel 列名" }),
           el("span", { text: "字段角色 (X / y)" }),
+          el("span", { text: "最小值" }),
+          el("span", { text: "最大值" }),
           el("span", { text: "已记住别名词典" }),
           el("span", { text: "" }),
         ]),
@@ -1605,9 +1750,15 @@ export function createDataCleanController(state, callbacks) {
     if (!state.currentBookId) return;
     await withButtonLoading(dcExportXlsxBtn, "提交导出...", async () => {
       try {
+        const curRules = (activeTemplate && activeTemplate.rules) || {};
         const res = await apiJson(`/api/books/${state.currentBookId}/export`, {
           method: "POST",
-          body: { format: "xlsx", template_id: activeTemplate ? activeTemplate.id : null },
+          body: {
+            format: "xlsx",
+            template_id: activeTemplate ? activeTemplate.id : null,
+            redact_pii: Boolean(curRules.redact_pii),
+            custom_redact_terms: curRules.custom_redact_terms || [],
+          },
         });
         const p = (res.job && res.job.params) || {};
         if (p.limited_by_license) {

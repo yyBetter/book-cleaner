@@ -780,6 +780,19 @@
               <div id="exportCatboostHint" class="muted-note hidden" style="margin-top:6px;">
                 已开启 CatBoost 建模导出：将在成品中自动追加「CatBoost_特征宽表」（1 批次 1 行、多目标 y 独立放表尾）与「CatBoost_字段契约」。
               </div>
+              <div class="export-privacy-box">
+                <div class="toolbar-between" style="gap:10px;">
+                  <label class="toggle-item toggle-compact" style="font-weight:600;">
+                    <input id="exportRedactPiiChk" class="toggle-switch" type="checkbox">
+                    <span>导出前自动脱敏敏感信息 (PII 掩码)</span>
+                  </label>
+                  <span id="exportRedactBadge" class="pill">未开启</span>
+                </div>
+                <div class="muted-note" style="font-size:12px;">
+                  开启后将在导出 Excel / Markdown / JSONL 时把手机号、身份证、邮箱、签字人及敏感词替换为一致代号（如 PERSON_01、TERM_01），既抹除原文又保留 CatBoost 关联性。
+                </div>
+                <input id="exportCustomRedactInput" class="input" style="font-size:12.5px;" type="text" placeholder="自定义敏感词（逗号隔开，如：工厂名、客户代号、项目名）">
+              </div>
             </div>
             <div class="toolbar-row">
               <button id="jumpToDatacleanBtn" type="button" class="btn btn-soft">去「4 表格」调整分拣与对齐 →</button>
@@ -1070,6 +1083,11 @@
           <input id="ruleMinConfInput" type="number" step="0.01" min="0.50" max="0.99" value="0.82" style="width:74px;padding:3px 6px;" class="input">
         </label>
         <label class="toggle-row"><span>导出时附带 CatBoost 建模宽表（含多目标 y 与字段契约）</span><input id="ruleCatboostModeChk" class="toggle-switch" type="checkbox" checked></label>
+        <label class="toggle-row"><span>导出前自动脱敏敏感信息 (PII 掩码)</span><input id="ruleRedactPiiChk" class="toggle-switch" type="checkbox"></label>
+        <div class="field-row" style="margin-top:8px;margin-bottom:0;">
+          <label for="ruleCustomRedactInput">自定义脱敏敏感词（逗号隔开）</label>
+          <input id="ruleCustomRedactInput" class="input" type="text" placeholder="例如：工厂名称, 客户代号, 内部项目名">
+        </div>
       </div>
       <div class="dialog-actions">
         <button type="button" class="btn" data-close-dialog="cleanRulesDialog">取消</button>

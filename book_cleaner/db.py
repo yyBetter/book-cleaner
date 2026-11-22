@@ -68,6 +68,8 @@ DEFAULT_EXCEL_RULES: dict[str, Any] = {
     "deduplicate_entries": True,
     "min_confidence_warn": 0.82,
     "catboost_mode": False,
+    "redact_pii": False,
+    "custom_redact_terms": [],
 }
 
 DEFAULT_EXCEL_COLUMNS: list[dict[str, Any]] = [
@@ -107,11 +109,11 @@ MULTISHEET_CATBOOST_PACK_SHEETS: list[dict[str, Any]] = [
         "mode": "record",
         "match_keywords": ["基础信息", "投料", "配料", "批记录", "设备", "档案", "领料"],
         "fields": [
-            {"key": "batch_id", "name": "批次号", "role": "meta_id", "agg": "last", "aliases": ["批号", "生产批号", "Lot", "batch_id"]},
-            {"key": "record_date", "name": "记录日期", "role": "time_split", "agg": "last", "aliases": ["日期", "制定日期", "生产日期"]},
-            {"key": "asset_id", "name": "设备编号", "role": "cat_feature", "agg": "last", "aliases": ["罐号", "工位", "生产线", "机台", "设备/卷宗编号"]},
-            {"key": "material_lot", "name": "原料批次", "role": "cat_feature", "agg": "last", "aliases": ["料批", "培养基批号", "原料批号"]},
-            {"key": "feed_mass", "name": "投料量", "role": "num_feature", "agg": "last", "aliases": ["配料量", "投料(kg)", "投料量(kg)"]},
+            {"key": "batch_id", "name": "批次号", "role": "meta_id", "agg": "last", "aliases": ["批号", "生产批号", "Lot", "batch_id"], "min_val": None, "max_val": None, "require_not_null": True},
+            {"key": "record_date", "name": "记录日期", "role": "time_split", "agg": "last", "aliases": ["日期", "制定日期", "生产日期"], "min_val": None, "max_val": None, "require_not_null": False},
+            {"key": "asset_id", "name": "设备编号", "role": "cat_feature", "agg": "last", "aliases": ["罐号", "工位", "生产线", "机台", "设备/卷宗编号"], "min_val": None, "max_val": None, "require_not_null": False},
+            {"key": "material_lot", "name": "原料批次", "role": "cat_feature", "agg": "last", "aliases": ["料批", "培养基批号", "原料批号"], "min_val": None, "max_val": None, "require_not_null": False},
+            {"key": "feed_mass", "name": "投料量", "role": "num_feature", "agg": "last", "aliases": ["配料量", "投料(kg)", "投料量(kg)"], "min_val": 0.0, "max_val": 1000000.0, "require_not_null": False},
         ],
     },
     {
@@ -120,14 +122,14 @@ MULTISHEET_CATBOOST_PACK_SHEETS: list[dict[str, Any]] = [
         "mode": "table",
         "match_keywords": ["过程", "巡检", "运行", "阶段", "温度", "压力", "工序", "清晰度", "指标"],
         "fields": [
-            {"key": "batch_id", "name": "批次号", "role": "meta_id", "agg": "last", "aliases": ["批号", "生产批号"]},
-            {"key": "time_point", "name": "记录时刻", "role": "time_split", "agg": "last", "aliases": ["时刻", "时间", "工龄", "阶段", "工序阶段"]},
-            {"key": "temp_c", "name": "温度", "role": "num_feature", "agg": "stats", "aliases": ["罐温", "温度(℃)", "Temp"]},
-            {"key": "pressure_mpa", "name": "压力", "role": "num_feature", "agg": "stats", "aliases": ["罐压", "压力(MPa)", "风压"]},
-            {"key": "do_pct", "name": "溶氧", "role": "num_feature", "agg": "stats", "aliases": ["DO", "溶解氧", "溶氧(%)"]},
-            {"key": "ph_val", "name": "pH", "role": "num_feature", "agg": "stats", "aliases": ["酸碱度", "pH值"]},
-            {"key": "target_metric", "name": "过程指标", "role": "num_feature", "agg": "stats", "aliases": ["目标指标", "补料速率", "转速"]},
-            {"key": "process_note", "name": "备注说明", "role": "text_feature", "agg": "join", "aliases": ["备注", "说明"]},
+            {"key": "batch_id", "name": "批次号", "role": "meta_id", "agg": "last", "aliases": ["批号", "生产批号"], "min_val": None, "max_val": None, "require_not_null": False},
+            {"key": "time_point", "name": "记录时刻", "role": "time_split", "agg": "last", "aliases": ["时刻", "时间", "工龄", "阶段", "工序阶段"], "min_val": None, "max_val": None, "require_not_null": False},
+            {"key": "temp_c", "name": "温度", "role": "num_feature", "agg": "stats", "aliases": ["罐温", "温度(℃)", "Temp"], "min_val": 0.0, "max_val": 100.0, "require_not_null": False},
+            {"key": "pressure_mpa", "name": "压力", "role": "num_feature", "agg": "stats", "aliases": ["罐压", "压力(MPa)", "风压"], "min_val": 0.0, "max_val": 10.0, "require_not_null": False},
+            {"key": "do_pct", "name": "溶氧", "role": "num_feature", "agg": "stats", "aliases": ["DO", "溶解氧", "溶氧(%)"], "min_val": 0.0, "max_val": 100.0, "require_not_null": False},
+            {"key": "ph_val", "name": "pH", "role": "num_feature", "agg": "stats", "aliases": ["酸碱度", "pH值"], "min_val": 0.0, "max_val": 14.0, "require_not_null": False},
+            {"key": "target_metric", "name": "过程指标", "role": "num_feature", "agg": "stats", "aliases": ["目标指标", "补料速率", "转速"], "min_val": None, "max_val": None, "require_not_null": False},
+            {"key": "process_note", "name": "备注说明", "role": "text_feature", "agg": "join", "aliases": ["备注", "说明"], "min_val": None, "max_val": None, "require_not_null": False},
         ],
     },
     {
@@ -136,11 +138,11 @@ MULTISHEET_CATBOOST_PACK_SHEETS: list[dict[str, Any]] = [
         "mode": "table",
         "match_keywords": ["化验", "检测", "采样", "取样", "样品", "含量", "纯度", "镜检", "残糖"],
         "fields": [
-            {"key": "batch_id", "name": "批次号", "role": "meta_id", "agg": "last", "aliases": ["批号"]},
-            {"key": "sample_time", "name": "取样时刻", "role": "time_split", "agg": "last", "aliases": ["采样时间", "时刻", "时间"]},
-            {"key": "assay_conc", "name": "化验浓度", "role": "num_feature", "agg": "stats", "aliases": ["浓度", "残糖", "效价", "氨基氮"]},
-            {"key": "assay_purity", "name": "过程纯度", "role": "num_feature", "agg": "stats", "aliases": ["纯度", "组分占比", "含量(%)"]},
-            {"key": "micro_check", "name": "镜检结果", "role": "cat_feature", "agg": "last", "aliases": ["镜检", "菌检", "无菌检查"]},
+            {"key": "batch_id", "name": "批次号", "role": "meta_id", "agg": "last", "aliases": ["批号"], "min_val": None, "max_val": None, "require_not_null": False},
+            {"key": "sample_time", "name": "取样时刻", "role": "time_split", "agg": "last", "aliases": ["采样时间", "时刻", "时间"], "min_val": None, "max_val": None, "require_not_null": False},
+            {"key": "assay_conc", "name": "化验浓度", "role": "num_feature", "agg": "stats", "aliases": ["浓度", "残糖", "效价", "氨基氮"], "min_val": 0.0, "max_val": None, "require_not_null": False},
+            {"key": "assay_purity", "name": "过程纯度", "role": "num_feature", "agg": "stats", "aliases": ["纯度", "组分占比", "含量(%)"], "min_val": 0.0, "max_val": 100.0, "require_not_null": False},
+            {"key": "micro_check", "name": "镜检结果", "role": "cat_feature", "agg": "last", "aliases": ["镜检", "菌检", "无菌检查"], "min_val": None, "max_val": None, "require_not_null": False},
         ],
     },
     {
@@ -149,10 +151,10 @@ MULTISHEET_CATBOOST_PACK_SHEETS: list[dict[str, Any]] = [
         "mode": "text",
         "match_keywords": ["SOP", "规程", "操作步骤", "质量门禁", "注意事项", "异常", "交接", "偏差", "数字化"],
         "fields": [
-            {"key": "batch_id", "name": "批次号", "role": "meta_id", "agg": "last", "aliases": ["批号"]},
-            {"key": "record_date", "name": "记录日期", "role": "time_split", "agg": "last", "aliases": ["日期", "制定日期"]},
-            {"key": "section_title", "name": "记录小节", "role": "cat_feature", "agg": "last", "aliases": ["标题", "章节"]},
-            {"key": "sop_content", "name": "SOP与异常正文", "role": "text_feature", "agg": "join", "aliases": ["正文", "内容", "交接说明", "清洗后正文"]},
+            {"key": "batch_id", "name": "批次号", "role": "meta_id", "agg": "last", "aliases": ["批号"], "min_val": None, "max_val": None, "require_not_null": False},
+            {"key": "record_date", "name": "记录日期", "role": "time_split", "agg": "last", "aliases": ["日期", "制定日期"], "min_val": None, "max_val": None, "require_not_null": False},
+            {"key": "section_title", "name": "记录小节", "role": "cat_feature", "agg": "last", "aliases": ["标题", "章节"], "min_val": None, "max_val": None, "require_not_null": False},
+            {"key": "sop_content", "name": "SOP与异常正文", "role": "text_feature", "agg": "join", "aliases": ["正文", "内容", "交接说明", "清洗后正文"], "min_val": None, "max_val": None, "require_not_null": False},
         ],
     },
     {
@@ -161,12 +163,12 @@ MULTISHEET_CATBOOST_PACK_SHEETS: list[dict[str, Any]] = [
         "mode": "record",
         "match_keywords": ["结果", "放罐", "验收", "终检", "收率", "结算", "汇总", "产出", "成品"],
         "fields": [
-            {"key": "batch_id", "name": "批次号", "role": "meta_id", "agg": "last", "aliases": ["批号"]},
-            {"key": "finish_date", "name": "完成日期", "role": "time_split", "agg": "last", "aliases": ["放罐日期", "验收日期", "日期"]},
-            {"key": "y_main_output", "name": "y_主产出指标", "role": "target_y", "agg": "last", "aliases": ["最终效价", "终检效价", "主产出", "产出指标", "效价"]},
-            {"key": "y_purity", "name": "y_核心纯度", "role": "target_y", "agg": "last", "aliases": ["最终纯度", "核心纯度", "纯度", "组分占比"]},
-            {"key": "y_yield", "name": "y_总收率", "role": "target_y", "agg": "last", "aliases": ["总收率", "收率", "得率", "回收率"]},
-            {"key": "y_grade", "name": "y_质量判定", "role": "target_y", "agg": "last", "aliases": ["质量判定", "合格判定", "质量等级", "判定"]},
+            {"key": "batch_id", "name": "批次号", "role": "meta_id", "agg": "last", "aliases": ["批号"], "min_val": None, "max_val": None, "require_not_null": False},
+            {"key": "finish_date", "name": "完成日期", "role": "time_split", "agg": "last", "aliases": ["放罐日期", "验收日期", "日期"], "min_val": None, "max_val": None, "require_not_null": False},
+            {"key": "y_main_output", "name": "y_主产出指标", "role": "target_y", "agg": "last", "aliases": ["最终效价", "终检效价", "主产出", "产出指标", "效价"], "min_val": 0.0, "max_val": None, "require_not_null": False},
+            {"key": "y_purity", "name": "y_核心纯度", "role": "target_y", "agg": "last", "aliases": ["最终纯度", "核心纯度", "纯度", "组分占比"], "min_val": 0.0, "max_val": 100.0, "require_not_null": False},
+            {"key": "y_yield", "name": "y_总收率", "role": "target_y", "agg": "last", "aliases": ["总收率", "收率", "得率", "回收率"], "min_val": 0.0, "max_val": 100.0, "require_not_null": False},
+            {"key": "y_grade", "name": "y_质量判定", "role": "target_y", "agg": "last", "aliases": ["质量判定", "合格判定", "质量等级", "判定"], "min_val": None, "max_val": None, "require_not_null": False},
         ],
     },
 ]
@@ -514,7 +516,7 @@ class Database:
                     ),
                 )
             pack_row = conn.execute(
-                "SELECT 1 FROM excel_templates WHERE name = ? LIMIT 1",
+                "SELECT id, sheets_json FROM excel_templates WHERE name = ? LIMIT 1",
                 ("多表批次记录与多目标 CatBoost 模板包",),
             ).fetchone()
             if pack_row is None:
@@ -537,6 +539,40 @@ class Database:
                         now,
                     ),
                 )
+            else:
+                try:
+                    existing_sheets = json.loads(pack_row["sheets_json"] or "[]")
+                except json.JSONDecodeError:
+                    existing_sheets = []
+                if isinstance(existing_sheets, list) and existing_sheets:
+                    default_bounds: dict[tuple[str, str], dict[str, Any]] = {}
+                    for ds in MULTISHEET_CATBOOST_PACK_SHEETS:
+                        sid = str(ds.get("sheet_id") or "")
+                        for df in ds.get("fields") or []:
+                            fk = str(df.get("key") or "")
+                            if sid and fk:
+                                default_bounds[(sid, fk)] = {
+                                    "min_val": df.get("min_val"),
+                                    "max_val": df.get("max_val"),
+                                    "require_not_null": bool(df.get("require_not_null", False)),
+                                }
+                    changed = False
+                    for es in existing_sheets:
+                        sid = str(es.get("sheet_id") or "")
+                        for ef in es.get("fields") or []:
+                            fk = str(ef.get("key") or "")
+                            preset = default_bounds.get((sid, fk))
+                            if preset and ("min_val" not in ef and "max_val" not in ef):
+                                ef["min_val"] = preset["min_val"]
+                                ef["max_val"] = preset["max_val"]
+                                if "require_not_null" not in ef:
+                                    ef["require_not_null"] = preset["require_not_null"]
+                                changed = True
+                    if changed:
+                        conn.execute(
+                            "UPDATE excel_templates SET sheets_json = ?, updated_at = ? WHERE id = ?",
+                            (json.dumps(existing_sheets, ensure_ascii=False), now, int(pack_row["id"])),
+                        )
             for tpl_name, tpl_desc, tpl_rules, tpl_sheets in (
                 (
                     "实验室检测与研发实验本模板包",

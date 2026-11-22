@@ -252,6 +252,37 @@ export function createReviewAndPipelineController(state, callbacks) {
     return chips;
   }
 
+  const UPGRADE_REASON_LABELS = {
+    low_confidence: "低置信度",
+    complex_table: "复杂多列表格",
+    numeric_density_anomaly: "数字密集/越界疑点",
+    high_line_fragmentation: "行碎片率高(无线表/手写)",
+    out_of_range_alert: "数值越界告警",
+  };
+
+  function formatOcrEngineInfo(page) {
+    const meta = (page && page.clean_meta) || {};
+    const eng = String(meta.ocr_engine_used || "rapidocr");
+    const engineMap = {
+      rapidocr: { label: "RapidOCR 离线", cls: "pipe-tag" },
+      ppocrv5_mobile: { label: "PP-OCRv5 离线", cls: "pipe-tag" },
+      ppocrv5_server: { label: "PP-OCRv5 高精离线", cls: "pipe-tag is-ok" },
+      ollama_glm_ocr: { label: "Ollama 视觉升级", cls: "pipe-tag is-accent" },
+      ollama_qwen25vl_3b: { label: "Ollama 视觉升级", cls: "pipe-tag is-accent" },
+      deepseek_ocr2_local: { label: "DeepSeek-OCR 2 升级", cls: "pipe-tag is-accent" },
+      deepseek_ocr2_api: { label: "DeepSeek-OCR 2 升级", cls: "pipe-tag is-accent" },
+    };
+    const info = engineMap[eng] || { label: eng, cls: "pipe-tag" };
+    const reasons = Array.isArray(meta.ocr_upgrade_reasons) ? meta.ocr_upgrade_reasons : [];
+    const reasonText = reasons.map((r) => UPGRADE_REASON_LABELS[r] || r).join("、");
+    return {
+      label: info.label,
+      cls: info.cls,
+      title: reasonText ? `坐标锚定触发原因：${reasonText}` : "实际执行文字识别的 OCR 引擎",
+      hasLlmSheet: Boolean(meta.llm_sheet_extracted),
+    };
+  }
+
   function formatOcrSummary(page) {
     const st = page.status || "";
     if (st === "CAPTURED" || st === "STAGING" || st === "CLEANING" || st === "CLEANED") {
@@ -348,6 +379,7 @@ export function createReviewAndPipelineController(state, callbacks) {
 
     // 3. OCR Step
     const ocrInfo = formatOcrSummary(page);
+    const engineInfo = formatOcrEngineInfo(page);
     const fullTxt = String(page.clean_text || page.ocr_text || "").trim();
 
     // 4. Plain Conclusion & Guidance
@@ -432,7 +464,13 @@ export function createReviewAndPipelineController(state, callbacks) {
             el("span", { text: "③ 离线文字识别 (OCR)" }),
             el("div", { class: "segmented-bar", style: "padding:2px;" }, [btnRender, btnSource]),
           ]),
-          el("span", { class: ocrInfo.cls, text: `${ocrInfo.badge} · ${ocrInfo.note}` }),
+          el("div", { class: "toolbar-row", style: "gap:5px;flex-wrap:wrap;" }, [
+            el("span", { class: engineInfo.cls, title: engineInfo.title, text: engineInfo.label }),
+            engineInfo.hasLlmSheet
+              ? el("span", { class: "pipe-tag is-accent", text: "AI 结构化填表" })
+              : null,
+            el("span", { class: ocrInfo.cls, text: `${ocrInfo.badge} · ${ocrInfo.note}` }),
+          ]),
         ]),
         ocrBox,
       ]),
@@ -483,6 +521,11 @@ export function createReviewAndPipelineController(state, callbacks) {
         .forEach((c) => stageTags.push(el("span", { class: c.cls, text: c.label })));
 
       const ocrInfo = formatOcrSummary(p);
+      const engineInfo = formatOcrEngineInfo(p);
+      stageTags.push(el("span", { class: engineInfo.cls, title: engineInfo.title, text: engineInfo.label }));
+      if (engineInfo.hasLlmSheet) {
+        stageTags.push(el("span", { class: "pipe-tag is-accent", text: "AI 结构化填表" }));
+      }
       stageTags.push(el("span", { class: ocrInfo.cls, text: `${ocrInfo.badge} · ${ocrInfo.note}` }));
 
       let statusLabel = "加工中…";
@@ -1153,11 +1196,19 @@ export function createReviewAndPipelineController(state, callbacks) {
       await withButtonLoading(btn, "正在生成...", async () => {
         try {
           const fmt = btn.dataset.format;
-          const payload = { format: fmt };
-          if (fmt === "xlsx") {
-            const tplSel = document.getElementById("exportExcelTemplateSelect");
-            if (tplSel && tplSel.value) payload.template_id = Number(tplSel.value);
-          }
+          const redactChk = document.getElementById("exportRedactPiiChk");
+          const termsInp = document.getElementById("exportCustomRedactInput");
+          const tplSel = document.getElementById("exportExcelTemplateSelect");
+          const customTerms = String((termsInp && termsInp.value) || "")
+            .split(/[,，;；\r\n]+/)
+            .map((x) => x.trim())
+            .filter(Boolean);
+          const payload = {
+            format: fmt,
+            redact_pii: Boolean(redactChk && redactChk.checked),
+            custom_redact_terms: customTerms,
+          };
+          if (tplSel && tplSel.value) payload.template_id = Number(tplSel.value);
           const res = await apiJson(`/api/books/${state.currentBookId}/export`, {
             method: "POST",
             body: payload,

@@ -10,6 +10,9 @@ from typing import Any, Literal
 
 import httpx
 
+from book_cleaner.pipeline.ocr_engine import build_coordinate_anchor_text
+from book_cleaner.pipeline.offline_ocr_hub import is_local_only_url
+
 
 LLMMode = Literal["off", "auto_low_conf", "all"]
 
@@ -171,9 +174,11 @@ def extract_sheet_rows_with_llm(
     sheet_def: dict[str, Any],
     cfg: LLMConfig,
     client: httpx.Client | None = None,
+    *,
+    ocr_blocks: list[Any] | None = None,
 ) -> tuple[list[dict[str, Any]], dict[str, Any]]:
     """Extract structured rows matching a target template Sheet via an OpenAI-compatible LLM."""
-    if not cfg.base_url or not cfg.api_key:
+    if not cfg.base_url or (not cfg.api_key and not is_local_only_url(cfg.base_url)):
         raise ValueError("LLM base_url and api_key are required")
     fields = list(sheet_def.get("fields") or [])
     if not fields:
@@ -188,25 +193,29 @@ def extract_sheet_rows_with_llm(
             "label": str(f.get("name") or f.get("key")),
             "role": str(f.get("role") or "num_feature"),
             "aliases": list(f.get("aliases") or []),
+            "min_val": f.get("min_val"),
+            "max_val": f.get("max_val"),
         }
         for f in fields
     ]
 
+    anchor_text = build_coordinate_anchor_text(ocr_blocks) if ocr_blocks else ""
     sys_prompt = (
         "你是工业与科研纸质单据结构化抽取助手。"
         "严格依据输入的 OCR 文本，仅抽取目标 Excel 子表要求的字段；"
+        "如输入包含 coordinate_anchors（[x0,y0,x1,y1] 文本框坐标骨架），请务必对照坐标行序与左右列位对齐无线表格数据，防止串行漏行与幻觉；"
         "严禁编造原文中不存在的数值，缺失字段一律填 null，数值不要带单位后缀（如 32.5℃ 只写 32.5）。"
         '仅输出严格合法的 JSON，格式为 {"rows": [{field_key: value_or_null, ...}]}。'
     )
-    user_prompt = json.dumps(
-        {
-            "target_sheet": sheet_name,
-            "sheet_mode": sheet_mode,
-            "fields": field_specs,
-            "ocr_text": page_text[:6000],
-        },
-        ensure_ascii=False,
-    )
+    user_payload: dict[str, Any] = {
+        "target_sheet": sheet_name,
+        "sheet_mode": sheet_mode,
+        "fields": field_specs,
+        "ocr_text": page_text[:6000],
+    }
+    if anchor_text:
+        user_payload["coordinate_anchors"] = anchor_text
+    user_prompt = json.dumps(user_payload, ensure_ascii=False)
 
     url = f"{cfg.base_url.rstrip('/')}/chat/completions"
     payload = {
@@ -218,7 +227,7 @@ def extract_sheet_rows_with_llm(
         ],
     }
     headers = {
-        "Authorization": f"Bearer {cfg.api_key}",
+        "Authorization": f"Bearer {cfg.api_key or 'local'}",
         "Content-Type": "application/json",
     }
 
