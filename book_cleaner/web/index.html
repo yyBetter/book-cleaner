@@ -875,60 +875,85 @@
   <dialog id="settingsDialog" class="dialog-settings" closedby="any" aria-labelledby="settingsTitle">
     <div class="dialog-inner dialog-scroll scroller">
       <div class="dialog-head">
-        <h2 id="settingsTitle">OCR 引擎、DeepSeek-OCR 2 加载包与大模型设置</h2>
+        <h2 id="settingsTitle">涉密离线 OCR 模型中心与引擎设置</h2>
         <button type="button" class="btn btn-sm" data-close-dialog="settingsDialog">关闭</button>
       </div>
       <form id="settingsForm" class="stack-sm">
+        <!-- Strict Offline Confidentiality Lock Banner -->
+        <div class="offline-lock-bar">
+          <div class="offline-lock-info">
+            <div class="toolbar-row">
+              <strong style="font-size:13.5px;">涉密严格离线模式（数据不出本机）</strong>
+              <span id="strictOfflineBadge" class="pill pill-ok">已锁定 · 禁止外传</span>
+            </div>
+            <div id="strictOfflineDesc" class="muted-note" style="margin-top:3px;">
+              开启后：图片识别、表格抽取与模型推理 100% 在本地运行，系统自动拦截所有非 127.0.0.1 / localhost 外部云端请求。
+            </div>
+          </div>
+          <label class="toggle-item toggle-compact" style="flex:none;">
+            <input id="ocrStrictOfflineChk" class="toggle-switch" type="checkbox" checked>
+          </label>
+        </div>
+
         <div class="settings-section">
           <div class="toolbar-between" style="margin-bottom:8px;">
-            <strong style="font-size:13.5px;">1. OCR 识别引擎选择（默认内置 RapidOCR 零成本离线）</strong>
-            <span id="addonStateBadge" class="pill">未安装插件包</span>
+            <strong style="font-size:13.5px;">1. 选择当前识别引擎</strong>
+            <span id="hubInstalledBadge" class="pill">内置 RapidOCR 就绪</span>
           </div>
 
-          <div class="field-row">
-            <label for="ocrEngineSelect">当前工作模式</label>
-            <select id="ocrEngineSelect" class="input">
-              <option value="rapidocr">RapidOCR 内置离线引擎（默认，任意电脑 0 成本）</option>
-              <option value="deepseek_ocr2_local">DeepSeek-OCR 2 本地插件包（需先检测并下载）</option>
-              <option value="deepseek_ocr2_api">DeepSeek-OCR 2 视觉 API（云端 / 局域网 vLLM）</option>
-              <option value="hybrid_smart">智能混合模式（常规页 RapidOCR + 低置信/复杂表自动升级 DeepSeek-OCR 2）</option>
-            </select>
+          <div class="grid-2" style="margin-bottom:8px;">
+            <div class="field-row" style="margin-bottom:0;">
+              <label for="ocrEngineSelect">当前工作模式</label>
+              <select id="ocrEngineSelect" class="input">
+                <option value="rapidocr">RapidOCR 内置极速离线版（PP-OCRv4，零下载通用）</option>
+                <option value="ppocrv5_mobile">PP-OCRv5 轻量离线增强包（~21 MB 纯 CPU 通用）</option>
+                <option value="ppocrv5_server">PP-OCRv5 高精度离线权重包（无独显推荐）</option>
+                <option value="ollama_glm_ocr">GLM-OCR 0.9B 本地视觉版（本机 Ollama，复杂表/手写强）</option>
+                <option value="ollama_qwen25vl_3b">Qwen2.5-VL 3B 本地视觉增强版（本机 Ollama，手写语义）</option>
+                <option value="deepseek_ocr2_local">DeepSeek-OCR 2 旗舰 CUDA 本地包（NVIDIA ≥ 8GB）</option>
+                <option value="hybrid_smart">离线智能混合（快速本地扫描 + 复杂/低分自动升本地视觉）</option>
+                <option value="deepseek_ocr2_api">Vision API（仅关闭涉密离线锁或连接本机回环可用）</option>
+              </select>
+            </div>
+            <div class="field-row" style="margin-bottom:0;">
+              <label for="ocrOllamaBaseUrlInput">本机 Ollama 地址（仅限 127.0.0.1 / localhost）</label>
+              <input id="ocrOllamaBaseUrlInput" class="input mono" type="url" placeholder="http://127.0.0.1:11434" value="http://127.0.0.1:11434">
+            </div>
           </div>
 
-          <div id="hwCheckBox" class="panel-subcard" style="margin-bottom:10px;">
-            <div class="toolbar-between" style="margin-bottom:6px;">
-              <strong style="font-size:12.5px;">本机硬件适配检查（DeepSeek-OCR 2 本地按需加载包）</strong>
+          <!-- Hardware Check & Smart Offline Model Hub -->
+          <div id="hwCheckBox" class="panel-subcard" style="margin:10px 0;">
+            <div class="toolbar-between" style="margin-bottom:4px;">
+              <strong style="font-size:12.5px;">本机硬件体检与离线 OCR 智能推荐</strong>
               <button id="recheckHwBtn" type="button" class="btn btn-sm">重新检测硬件</button>
             </div>
-            <div id="hwSummaryText" class="muted-note">正在检测 GPU / 显存 / 内存 / 磁盘...</div>
-            <div id="hwDetailList" style="font-size:12px;margin-top:6px;"></div>
+            <div id="hwSummaryText" class="muted-note">正在体检本机 CPU / 内存 / 显卡 / 磁盘 / Ollama...</div>
+            <div id="ocrHubRecommendation" class="ocr-hub-rec">正在匹配适合当前电脑的离线 OCR 方案...</div>
           </div>
 
-          <div style="margin-bottom:10px;">
-            <div class="toolbar-row" style="margin-bottom:8px;">
+          <div class="toolbar-between" style="margin-bottom:8px;">
+            <div class="toolbar-row">
               <label class="toggle-item toggle-compact">
                 <input id="addonMirrorChk" class="toggle-switch" type="checkbox" checked>
-                <span>优先国内镜像源 (hf-mirror.com)</span>
+                <span>优先国内镜像源 (ModelScope / hf-mirror)</span>
               </label>
               <label class="toggle-item toggle-compact">
                 <input id="addonForceChk" class="toggle-switch" type="checkbox">
-                <span>忽略检查强制尝试下载</span>
+                <span>忽略硬件限制强行下载</span>
               </label>
-            </div>
-            <div class="stacked-bar" style="height:8px;margin:6px 0;">
-              <div id="addonProgressBar" class="seg-done" style="width:0%"></div>
-            </div>
-            <div id="addonProgressText" class="muted-note">尚未安装（不影响内置 RapidOCR 正常使用）</div>
-            <pre id="addonLogTail" class="log-tail-pre hidden"></pre>
-            <div class="toolbar-row" style="margin-top:8px;">
-              <button id="installAddonBtn" type="button" class="btn btn-sm btn-primary">下载并安装 DeepSeek-OCR 2 插件包</button>
-              <button id="cancelAddonBtn" type="button" class="btn btn-sm btn-soft hidden">取消下载</button>
-              <button id="uninstallAddonBtn" type="button" class="btn btn-sm btn-danger hidden">卸载释放空间</button>
             </div>
           </div>
 
-          <div class="section-divider">
-            <strong style="font-size:13px;display:block;margin-bottom:8px;">DeepSeek-OCR 2 视觉 API（无独显电脑 / 混合升级用）</strong>
+          <!-- Multi-Tier Offline Model Cards (with Download / Pause / Resume / Cancel / Uninstall) -->
+          <div id="ocrModelCardList" class="ocr-hub-grid" aria-live="polite"></div>
+        </div>
+
+        <details class="settings-section section-divider">
+          <summary style="cursor:pointer;font-weight:700;font-size:13px;">2. 可选：智能混合阈值与外部/局域网 Vision API 设置</summary>
+          <div style="margin-top:10px;">
+            <div id="strictOfflineApiNote" class="muted-note" style="margin-bottom:8px;color:var(--ok);">
+              当前处于涉密严格离线模式：除本机 127.0.0.1 / localhost 地址外，系统将自动拦截外部视觉 API 请求。
+            </div>
             <div class="grid-2" style="margin-bottom:8px;">
               <div class="field-row">
                 <label for="ocrApiBaseUrlInput">Vision API Base URL</label>
@@ -952,16 +977,16 @@
             <div class="toolbar-between">
               <label class="toggle-item toggle-compact">
                 <input id="ocrHybridTablesChk" class="toggle-switch" type="checkbox" checked>
-                <span>复杂表格自动升级 DeepSeek-OCR 2</span>
+                <span>复杂多列表格自动升级高精度视觉引擎</span>
               </label>
-              <button id="testOcrApiBtn" type="button" class="btn btn-sm">测试视觉 API</button>
+              <button id="testOcrApiBtn" type="button" class="btn btn-sm">测试视觉接口</button>
             </div>
             <div id="ocrApiTestResult" class="muted-note" style="min-height:16px;margin-top:4px;"></div>
           </div>
-        </div>
+        </details>
 
         <details class="settings-section section-divider">
-          <summary style="cursor:pointer;font-weight:700;font-size:13px;">2. 可选：文本级 LLM 精校设置（默认关闭，仅在 OCR 之后二次校对）</summary>
+          <summary style="cursor:pointer;font-weight:700;font-size:13px;">3. 可选：文本级 LLM 精校设置（默认关闭；涉密模式仅放行本机回环地址）</summary>
           <div style="margin-top:10px;">
             <div class="field-row">
               <label for="llmModeSelect">大模型辅助校对触发策略（默认关闭，离线零费用）</label>
@@ -972,16 +997,16 @@
               </select>
             </div>
             <div class="field-row">
-              <label for="llmBaseUrlInput">OpenAI 兼容接口 Base URL</label>
-              <input id="llmBaseUrlInput" class="input" type="url" placeholder="https://api.openai.com/v1">
+              <label for="llmBaseUrlInput">OpenAI 兼容接口 Base URL（本机 Ollama 可填 http://127.0.0.1:11434/v1）</label>
+              <input id="llmBaseUrlInput" class="input" type="url" placeholder="http://127.0.0.1:11434/v1">
             </div>
             <div class="field-row">
               <label for="llmModelInput">模型名称</label>
-              <input id="llmModelInput" class="input" type="text" placeholder="gpt-4o-mini / deepseek-chat / qwen-plus">
+              <input id="llmModelInput" class="input" type="text" placeholder="qwen2.5:7b / gpt-4o-mini">
             </div>
             <div class="field-row">
               <label for="llmApiKeyInput">API Key（仅保存在本机 SQLite）</label>
-              <input id="llmApiKeyInput" class="input" type="password" placeholder="sk-...">
+              <input id="llmApiKeyInput" class="input" type="password" placeholder="本机 Ollama 填 ollama">
             </div>
             <div class="field-row">
               <label for="llmLowConfInput">自动触发精校的 OCR 置信度阈值 (0.50 - 0.99)</label>

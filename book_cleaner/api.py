@@ -31,6 +31,7 @@ from book_cleaner.pipeline.llm_clean import (
     test_llm_connection,
 )
 from book_cleaner.pipeline.ocr_router import OCRSettings, test_deepseek_api_connection
+from book_cleaner.pipeline.offline_ocr_hub import is_local_only_url
 from book_cleaner.pipeline.sheet_matcher import match_book_to_template_pack
 from book_cleaner.storage import ShardedStorage
 from book_cleaner.worker import PipelineCoordinator
@@ -154,10 +155,16 @@ class AddonInstallRequest(BaseModel):
     force: bool = False
 
 
+class ModelDownloadRequest(BaseModel):
+    use_cn_mirror: bool = True
+    force: bool = False
+
+
 class OCRTestRequest(BaseModel):
     api_base_url: str = "https://api.siliconflow.cn/v1"
     api_key: str = ""
     api_model: str = "deepseek-ai/DeepSeek-OCR-2"
+    strict_offline: bool | None = None
 
 
 class LLMTestRequest(BaseModel):
@@ -165,6 +172,7 @@ class LLMTestRequest(BaseModel):
     base_url: str = "https://api.openai.com/v1"
     api_key: str = ""
     model: str = "gpt-4o-mini"
+    strict_offline: bool | None = None
 
 
 # ----------------------------------------------------------------------
@@ -937,8 +945,15 @@ def create_app(
         if sheet_def is None:
             raise HTTPException(status_code=404, detail="目标模板子表不存在")
 
-        cfg = LLMConfig.from_dict(db.get_settings().get("llm"))
-        if not cfg.base_url or not cfg.api_key:
+        all_settings = db.get_settings()
+        cfg = LLMConfig.from_dict(all_settings.get("llm"))
+        ocr_cfg = all_settings.get("ocr") or {}
+        if ocr_cfg.get("strict_offline", True) and not is_local_only_url(cfg.base_url):
+            raise HTTPException(
+                status_code=403,
+                detail="当前已开启「涉密严格离线模式」，仅允许连接本机 127.0.0.1 / localhost 地址",
+            )
+        if not cfg.base_url or (not cfg.api_key and not is_local_only_url(cfg.base_url)):
             raise HTTPException(
                 status_code=400,
                 detail="请先在右上角「OCR 设置 → 文本级 LLM 精校设置」中填写 Base URL 与 API Key",
@@ -1026,6 +1041,62 @@ def create_app(
         return FileResponse(path, filename=path.name)
 
     # ------------------------------------------------------------------
+    # Offline OCR Hub, Hardware Recommendation & Resumable Downloads
+    # ------------------------------------------------------------------
+    @app.get("/api/ocr/models")
+    def list_offline_ocr_models() -> dict[str, Any]:
+        ob = str((db.get_settings().get("ocr") or {}).get("ollama_base_url") or "http://127.0.0.1:11434")
+        return coordinator.offline_ocr_hub.get_catalog_status(ollama_base_url=ob)
+
+    @app.post("/api/ocr/models/check")
+    def check_offline_ocr_models() -> dict[str, Any]:
+        ob = str((db.get_settings().get("ocr") or {}).get("ollama_base_url") or "http://127.0.0.1:11434")
+        return coordinator.offline_ocr_hub.get_catalog_status(ollama_base_url=ob)
+
+    @app.post("/api/ocr/models/{model_id}/download")
+    def download_offline_ocr_model(
+        model_id: str,
+        body: ModelDownloadRequest | None = None,
+    ) -> dict[str, Any]:
+        req = body or ModelDownloadRequest()
+        ob = str((db.get_settings().get("ocr") or {}).get("ollama_base_url") or "http://127.0.0.1:11434")
+        try:
+            return coordinator.offline_ocr_hub.start_download(
+                model_id,
+                use_cn_mirror=req.use_cn_mirror,
+                force=req.force,
+                ollama_base_url=ob,
+            )
+        except KeyError as exc:
+            raise HTTPException(status_code=404, detail=str(exc)) from exc
+        except ValueError as exc:
+            raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+    @app.post("/api/ocr/models/{model_id}/pause")
+    def pause_offline_ocr_model(model_id: str) -> dict[str, Any]:
+        try:
+            return coordinator.offline_ocr_hub.pause_download(model_id)
+        except KeyError as exc:
+            raise HTTPException(status_code=404, detail=str(exc)) from exc
+
+    @app.post("/api/ocr/models/{model_id}/cancel")
+    def cancel_offline_ocr_model(model_id: str) -> dict[str, Any]:
+        try:
+            return coordinator.offline_ocr_hub.cancel_download(model_id)
+        except KeyError as exc:
+            raise HTTPException(status_code=404, detail=str(exc)) from exc
+
+    @app.delete("/api/ocr/models/{model_id}")
+    def uninstall_offline_ocr_model(model_id: str) -> dict[str, Any]:
+        ob = str((db.get_settings().get("ocr") or {}).get("ollama_base_url") or "http://127.0.0.1:11434")
+        try:
+            return coordinator.offline_ocr_hub.uninstall_model(model_id, ollama_base_url=ob)
+        except KeyError as exc:
+            raise HTTPException(status_code=404, detail=str(exc)) from exc
+        except ValueError as exc:
+            raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+    # ------------------------------------------------------------------
     # Settings, DeepSeek-OCR 2 On-Demand Add-on & Connectivity Tests
     # ------------------------------------------------------------------
     @app.get("/api/ocr/addons/deepseek")
@@ -1048,6 +1119,10 @@ def create_app(
         except ValueError as exc:
             raise HTTPException(status_code=400, detail=str(exc)) from exc
 
+    @app.post("/api/ocr/addons/deepseek/pause")
+    def pause_deepseek_addon_install() -> dict[str, Any]:
+        return coordinator.deepseek_addon.pause_install()
+
     @app.post("/api/ocr/addons/deepseek/cancel")
     def cancel_deepseek_addon_install() -> dict[str, Any]:
         return coordinator.deepseek_addon.cancel_install()
@@ -1058,7 +1133,10 @@ def create_app(
 
     @app.post("/api/ocr/test-api")
     def test_ocr_api(body: OCRTestRequest) -> dict[str, Any]:
-        cfg_ocr = OCRSettings.from_dict(body.model_dump())
+        saved_ocr = db.get_settings().get("ocr") or {}
+        strict_off = body.strict_offline if body.strict_offline is not None else bool(saved_ocr.get("strict_offline", True))
+        payload = {**body.model_dump(), "strict_offline": strict_off}
+        cfg_ocr = OCRSettings.from_dict(payload)
         return test_deepseek_api_connection(cfg_ocr)
 
     @app.get("/api/settings")
@@ -1078,7 +1156,16 @@ def create_app(
 
     @app.post("/api/settings/test-llm")
     def test_llm(body: LLMTestRequest) -> dict[str, Any]:
+        saved_ocr = db.get_settings().get("ocr") or {}
+        strict_off = body.strict_offline if body.strict_offline is not None else bool(saved_ocr.get("strict_offline", True))
         cfg_llm = LLMConfig.from_dict(body.model_dump())
+        if strict_off and not is_local_only_url(cfg_llm.base_url):
+            return {
+                "ok": False,
+                "message": "当前已开启「涉密严格离线模式」，仅允许连接本机 127.0.0.1 / localhost 地址",
+                "model": cfg_llm.model,
+                "latency_ms": 0,
+            }
         return test_llm_connection(cfg_llm)
 
     return app

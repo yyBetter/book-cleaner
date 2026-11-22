@@ -53,16 +53,23 @@ let dataCleanCtrl = null;
 
 const OCR_ENGINE_LABELS = {
   rapidocr: "RapidOCR 离线",
+  ppocrv5_mobile: "PP-OCRv5 轻量离线",
+  ppocrv5_server: "PP-OCRv5 高精度离线",
+  ollama_glm_ocr: "GLM-OCR 0.9B 离线",
+  ollama_qwen25vl_3b: "Qwen2.5-VL 3B 离线",
   deepseek_ocr2_local: "DeepSeek-OCR 2 本地",
-  deepseek_ocr2_api: "DeepSeek-OCR 2 API",
-  hybrid_smart: "智能混合 OCR",
+  deepseek_ocr2_api: "Vision API",
+  hybrid_smart: "离线混合 OCR",
 };
 
 function updateActiveOcrPill(ocrCfg) {
   if (!activeOcrPill) return;
   const eng = (ocrCfg && ocrCfg.engine) || "rapidocr";
-  activeOcrPill.textContent = OCR_ENGINE_LABELS[eng] || eng;
-  activeOcrPill.className = `pill ${eng === "rapidocr" ? "" : "pill-ok"}`;
+  const strict = !ocrCfg || ocrCfg.strict_offline !== false;
+  const lockPrefix = strict ? "🔒 " : "";
+  const label = OCR_ENGINE_LABELS[eng] || eng;
+  activeOcrPill.textContent = `${lockPrefix}${label}`;
+  activeOcrPill.className = `pill ${strict || eng !== "rapidocr" ? "pill-ok" : ""}`;
 }
 
 function updateTabBadges(bookStats) {
@@ -262,83 +269,297 @@ seedDemoBtn.addEventListener("click", async () => {
   });
 });
 
-// Settings, OCR Engine & DeepSeek-OCR 2 On-Demand Add-on Modal
-function renderAddonStatus(st) {
-  if (!st) return;
-  const hw = st.hardware || {};
-  const badge = document.getElementById("addonStateBadge");
+// Settings, Strict Offline Lock & Multi-Tier Offline OCR Model Hub
+let cachedHubCatalog = null;
+
+function syncStrictOfflineUi(strictEnabled) {
+  const badge = document.getElementById("strictOfflineBadge");
+  const desc = document.getElementById("strictOfflineDesc");
+  const apiNote = document.getElementById("strictOfflineApiNote");
+  const apiOpt = document.querySelector('#ocrEngineSelect option[value="deepseek_ocr2_api"]');
+  if (badge) {
+    badge.textContent = strictEnabled ? "已锁定 · 禁止外传" : "已解锁 · 允许外部接口";
+    badge.className = `pill ${strictEnabled ? "pill-ok" : "pill-warn"}`;
+  }
+  if (desc) {
+    desc.textContent = strictEnabled
+      ? "开启后：图片识别、表格抽取与模型推理 100% 在本地运行，系统自动拦截所有非 127.0.0.1 / localhost 外部云端请求。"
+      : "注意：当前允许访问外部云端接口，仅限处理非涉密公开文档！涉密文件请重新打开此开关。";
+  }
+  if (apiNote) {
+    apiNote.textContent = strictEnabled
+      ? "当前处于涉密严格离线模式：除本机 127.0.0.1 / localhost 地址外，系统将自动拦截外部视觉 API 请求。"
+      : "外部接口已解锁：可使用云端 DeepSeek-OCR 2 / OpenAI 接口。";
+    apiNote.style.color = strictEnabled ? "var(--ok)" : "var(--warn)";
+  }
+  if (apiOpt) {
+    apiOpt.textContent = strictEnabled
+      ? "Vision API（涉密模式已锁定外网，仅可连 127.0.0.1）"
+      : "DeepSeek-OCR 2 视觉 API（云端 / 局域网）";
+  }
+}
+
+function syncEngineSelectWithHub(catalog) {
+  if (!catalog || !Array.isArray(catalog.models)) return;
+  const engSel = document.getElementById("ocrEngineSelect");
+  if (!engSel) return;
+  const byEng = {};
+  for (const m of catalog.models) byEng[m.engine_value] = m;
+
+  Array.from(engSel.options).forEach((opt) => {
+    const m = byEng[opt.value];
+    if (!m || m.runner === "builtin_onnx") return;
+    opt.disabled = !m.installed;
+  });
+}
+
+function renderOcrModelCards(catalog) {
+  if (!catalog) return;
+  cachedHubCatalog = catalog;
+  const hw = catalog.hardware || {};
+  const models = catalog.models || [];
+
   const hwSummary = document.getElementById("hwSummaryText");
-  const hwDetails = document.getElementById("hwDetailList");
-  const progBar = document.getElementById("addonProgressBar");
-  const progText = document.getElementById("addonProgressText");
-  const logTail = document.getElementById("addonLogTail");
-  const installBtn = document.getElementById("installAddonBtn");
-  const cancelBtn = document.getElementById("cancelAddonBtn");
-  const uninstallBtn = document.getElementById("uninstallAddonBtn");
+  const recBox = document.getElementById("ocrHubRecommendation");
+  const installedBadge = document.getElementById("hubInstalledBadge");
+  const cardList = document.getElementById("ocrModelCardList");
   const forceChk = document.getElementById("addonForceChk");
-  const localOpt = document.querySelector('#ocrEngineSelect option[value="deepseek_ocr2_local"]');
+  const mirrorChk = document.getElementById("addonMirrorChk");
+  const currentEngine = document.getElementById("ocrEngineSelect")?.value || "rapidocr";
 
-  const installed = Boolean(st.installed);
-  const installing = st.install_state === "installing";
-  if (installed) {
-    badge.textContent = `已安装 (${st.disk_usage_mb} MB)`;
-    badge.className = "pill pill-ok";
-  } else if (installing) {
-    badge.textContent = `安装中 ${st.percent || 0}%`;
-    badge.className = "pill pill-warn";
-  } else if (st.install_state === "failed") {
-    badge.textContent = "安装失败";
-    badge.className = "pill pill-danger";
-  } else {
-    badge.textContent = "未安装（可按需下载）";
-    badge.className = "pill";
+  if (hwSummary) hwSummary.textContent = hw.summary || "";
+  if (recBox) recBox.textContent = catalog.recommendation || "";
+
+  const installedCnt = models.filter((m) => m.installed).length;
+  if (installedBadge) {
+    installedBadge.textContent = `已有 ${installedCnt} 个可用离线引擎`;
+    installedBadge.className = "pill pill-ok";
   }
+  syncEngineSelectWithHub(catalog);
 
-  if (localOpt) {
-    localOpt.disabled = !installed;
-    localOpt.textContent = installed
-      ? "DeepSeek-OCR 2 本地插件包（已安装就绪）"
-      : "DeepSeek-OCR 2 本地插件包（需先检测并下载）";
+  if (!cardList) return;
+  cardList.replaceChildren();
+  const forceOn = Boolean(forceChk && forceChk.checked);
+  const useMirror = !mirrorChk || Boolean(mirrorChk.checked);
+
+  for (const m of models) {
+    const isInstalled = Boolean(m.installed);
+    const isCurrent = currentEngine === m.engine_value;
+    const stateStr = String(m.state || (isInstalled ? "installed" : "not_installed"));
+
+    let fitBadgeText = "硬件适配";
+    let fitBadgeCls = "pill";
+    if (m.fit === "recommended") {
+      fitBadgeText = "★ 最适合当前电脑";
+      fitBadgeCls = "pill pill-ok";
+    } else if (m.fit === "needs_runtime") {
+      fitBadgeText = "需启动 Ollama";
+      fitBadgeCls = "pill pill-warn";
+    } else if (m.fit === "insufficient") {
+      fitBadgeText = "硬件不支持";
+      fitBadgeCls = "pill pill-danger";
+    } else if (m.fit === "compatible") {
+      fitBadgeText = "✓ 可离线运行";
+      fitBadgeCls = "pill pill-ok";
+    }
+
+    const sizeTxt = m.size_mb > 0 ? (m.size_mb >= 1000 ? `${(m.size_mb / 1024).toFixed(1)} GB` : `${Math.round(m.size_mb)} MB`) : "0 MB 内置";
+
+    const progressSection = [];
+    if (stateStr === "downloading" || stateStr === "paused" || stateStr === "failed") {
+      const pct = Math.max(0, Math.min(100, Number(m.percent || 0)));
+      const speedTxt = m.speed_mb_s > 0 ? ` · ${m.speed_mb_s} MB/s` : "";
+      const mbTxt = m.total_mb > 0 ? `${m.downloaded_mb || 0}/${m.total_mb} MB` : "";
+      progressSection.push(
+        el("div", { class: "ocr-progress-row" }, [
+          el("div", { class: "stacked-bar", style: "height:7px;margin:0;flex:1;" }, [
+            el("div", {
+              class: stateStr === "paused" ? "seg-review" : stateStr === "failed" ? "seg-fail" : "seg-done",
+              style: `width:${pct}%`,
+            }),
+          ]),
+          el("span", { class: "mono muted-note", style: "font-size:11.5px;", text: `${pct}% ${mbTxt}${speedTxt}` }),
+        ])
+      );
+      if (m.message) {
+        progressSection.push(
+          el("div", {
+            class: "muted-note",
+            style: `font-size:11.5px;color:${stateStr === "failed" ? "var(--danger)" : "var(--muted)"};`,
+            text: m.message,
+          })
+        );
+      }
+    }
+
+    const reasonNotes = (m.reasons || []).map((r) =>
+      el("div", { class: "muted-note", style: "font-size:11.5px;color:var(--warn);", text: `• ${r}` })
+    );
+
+    const actions = [];
+    if (isInstalled) {
+      const useBtn = el("button", {
+        type: "button",
+        class: `btn btn-sm ${isCurrent ? "btn-soft" : "btn-primary"}`,
+        disabled: isCurrent,
+        text: isCurrent ? "当前正在使用 ✓" : "设为当前引擎",
+        onclick: () => {
+          const sel = document.getElementById("ocrEngineSelect");
+          if (sel) sel.value = m.engine_value;
+          renderOcrModelCards(catalog);
+          showToast(`已切换候选引擎为「${m.name}」，点击下方「保存全部设置」生效`, "ok");
+        },
+      });
+      actions.push(useBtn);
+      if (m.runner !== "builtin_onnx") {
+        actions.push(
+          el("button", {
+            type: "button",
+            class: "btn btn-sm btn-danger-ghost",
+            text: "卸载释放空间",
+            onclick: async () => {
+              try {
+                const updated = await apiJson(`/api/ocr/models/${m.model_id}`, { method: "DELETE" });
+                renderOcrModelCards(updated);
+                showToast(`已卸载「${m.name}」`, "ok");
+              } catch (err) {
+                showToast(err.message, "danger");
+              }
+            },
+          })
+        );
+      }
+    } else if (stateStr === "downloading") {
+      actions.push(
+        el("button", {
+          type: "button",
+          class: "btn btn-sm btn-soft",
+          text: "暂停下载",
+          onclick: async () => {
+            try {
+              const updated = await apiJson(`/api/ocr/models/${m.model_id}/pause`, { method: "POST" });
+              renderOcrModelCards(updated);
+            } catch (err) {
+              showToast(err.message, "danger");
+            }
+          },
+        }),
+        el("button", {
+          type: "button",
+          class: "btn btn-sm btn-danger-ghost",
+          text: "取消",
+          onclick: async () => {
+            try {
+              const updated = await apiJson(`/api/ocr/models/${m.model_id}/cancel`, { method: "POST" });
+              renderOcrModelCards(updated);
+            } catch (err) {
+              showToast(err.message, "danger");
+            }
+          },
+        })
+      );
+    } else if (stateStr === "paused") {
+      actions.push(
+        el("button", {
+          type: "button",
+          class: "btn btn-sm btn-primary",
+          text: "继续下载",
+          onclick: async () => {
+            try {
+              const updated = await apiJson(`/api/ocr/models/${m.model_id}/download`, {
+                method: "POST",
+                body: { use_cn_mirror: useMirror, force: forceOn },
+              });
+              renderOcrModelCards(updated);
+            } catch (err) {
+              showToast(err.message, "warn");
+            }
+          },
+        }),
+        el("button", {
+          type: "button",
+          class: "btn btn-sm btn-danger-ghost",
+          text: "取消",
+          onclick: async () => {
+            try {
+              const updated = await apiJson(`/api/ocr/models/${m.model_id}/cancel`, { method: "POST" });
+              renderOcrModelCards(updated);
+            } catch (err) {
+              showToast(err.message, "danger");
+            }
+          },
+        })
+      );
+    } else if (m.runner !== "builtin_onnx") {
+      const blocked = !m.can_download && !forceOn;
+      actions.push(
+        el("button", {
+          type: "button",
+          class: `btn btn-sm ${m.fit === "recommended" ? "btn-primary" : ""}`,
+          disabled: blocked,
+          text: stateStr === "failed" ? "重试下载" : "下载模型",
+          onclick: async () => {
+            try {
+              const updated = await apiJson(`/api/ocr/models/${m.model_id}/download`, {
+                method: "POST",
+                body: { use_cn_mirror: useMirror, force: forceOn },
+              });
+              renderOcrModelCards(updated);
+              showToast(`开始后台下载「${m.name}」（可随时暂停）`, "ok");
+            } catch (err) {
+              showToast(err.message, "warn");
+            }
+          },
+        })
+      );
+    }
+
+    const strengthTags = (m.strengths || []).map((s) => el("span", { class: "badge-mode", text: s }));
+
+    cardList.appendChild(
+      el("div", { class: `ocr-model-card${m.is_recommended ? " is-recommended" : ""}` }, [
+        el("div", { class: "ocr-model-head" }, [
+          el("div", { class: "toolbar-row", style: "gap:6px;" }, [
+            el("strong", { style: "font-size:13px;", text: m.name }),
+            el("span", { class: "badge-mode mono", text: sizeTxt }),
+          ]),
+          el("span", { class: fitBadgeCls, text: isInstalled ? "已就绪 ✓" : fitBadgeText }),
+        ]),
+        el("div", { class: "muted-note", style: "font-size:12px;", text: m.summary }),
+        el("div", { class: "toolbar-row", style: "gap:5px;" }, strengthTags),
+        ...reasonNotes,
+        ...progressSection,
+        el("div", { class: "ocr-card-actions" }, actions),
+      ])
+    );
   }
-
-  const gpus = hw.gpus || [];
-  const gpuTxt = gpus.length ? `${gpus[0].name} (${gpus[0].vram_mb} MB)` : "未检测到 NVIDIA GPU";
-  hwSummary.textContent = `平台: ${hw.platform || "-"} · 显卡: ${gpuTxt} · 内存: ${hw.ram_gb || 0} GB · 可用空间: ${hw.free_disk_gb || 0} GB`;
-  hwSummary.style.color = hw.can_run_local ? "var(--ok)" : "var(--warn)";
-
-  hwDetails.replaceChildren();
-  hwDetails.appendChild(el("div", { text: hw.recommendation || "" }));
-  for (const reason of hw.reasons || []) {
-    hwDetails.appendChild(el("div", { style: "color:var(--warn);", text: `• ${reason}` }));
-  }
-
-  progBar.style.width = `${st.percent || 0}%`;
-  progText.textContent = st.message || "";
-  if (st.log_tail) {
-    logTail.textContent = st.log_tail;
-    logTail.classList.remove("hidden");
-  } else {
-    logTail.classList.add("hidden");
-  }
-
-  installBtn.classList.toggle("hidden", installing || installed);
-  installBtn.disabled = !hw.can_run_local && !forceChk.checked;
-  cancelBtn.classList.toggle("hidden", !installing);
-  uninstallBtn.classList.toggle("hidden", !installed && st.disk_usage_mb <= 0);
 }
 
-async function refreshAddonStatus(recheck = false) {
-  const url = recheck ? "/api/ocr/addons/deepseek/check" : "/api/ocr/addons/deepseek";
-  const st = await apiJson(url, { method: recheck ? "POST" : "GET" });
-  renderAddonStatus(st);
-  return st;
+async function refreshOcrHub(recheck = false) {
+  const url = recheck ? "/api/ocr/models/check" : "/api/ocr/models";
+  const catalog = await apiJson(url, { method: recheck ? "POST" : "GET" });
+  renderOcrModelCards(catalog);
+  return catalog;
 }
+
+document.getElementById("ocrStrictOfflineChk")?.addEventListener("change", (e) => {
+  syncStrictOfflineUi(Boolean(e.target.checked));
+});
 
 document.getElementById("openSettingsBtn").addEventListener("click", async () => {
   try {
-    const [cfg, addonSt] = await Promise.all([apiJson("/api/settings"), refreshAddonStatus(false)]);
+    const [cfg, catalog] = await Promise.all([apiJson("/api/settings"), refreshOcrHub(false)]);
     const ocr = cfg.ocr || {};
-    document.getElementById("ocrEngineSelect").value = ocr.engine || "rapidocr";
+    const strict = ocr.strict_offline !== false;
+    const strictChk = document.getElementById("ocrStrictOfflineChk");
+    if (strictChk) strictChk.checked = strict;
+    syncStrictOfflineUi(strict);
+
+    const engSel = document.getElementById("ocrEngineSelect");
+    if (engSel) engSel.value = ocr.engine || "rapidocr";
+    const ollamaInp = document.getElementById("ocrOllamaBaseUrlInput");
+    if (ollamaInp) ollamaInp.value = ocr.ollama_base_url || "http://127.0.0.1:11434";
+
     document.getElementById("ocrApiBaseUrlInput").value = ocr.api_base_url || "https://api.siliconflow.cn/v1";
     document.getElementById("ocrApiModelInput").value = ocr.api_model || "deepseek-ai/DeepSeek-OCR-2";
     document.getElementById("ocrApiKeyInput").value = ocr.api_key || "";
@@ -348,12 +569,12 @@ document.getElementById("openSettingsBtn").addEventListener("click", async () =>
 
     const llm = cfg.llm || {};
     document.getElementById("llmModeSelect").value = llm.mode || "off";
-    document.getElementById("llmBaseUrlInput").value = llm.base_url || "https://api.openai.com/v1";
-    document.getElementById("llmModelInput").value = llm.model || "gpt-4o-mini";
+    document.getElementById("llmBaseUrlInput").value = llm.base_url || "http://127.0.0.1:11434/v1";
+    document.getElementById("llmModelInput").value = llm.model || "qwen2.5:7b";
     document.getElementById("llmApiKeyInput").value = llm.api_key || "";
     document.getElementById("llmLowConfInput").value = String(llm.low_conf_threshold ?? 0.85);
     document.getElementById("llmTestResult").textContent = "";
-    renderAddonStatus(addonSt);
+    renderOcrModelCards(catalog);
     updateActiveOcrPill(ocr);
     settingsDialog.showModal();
   } catch (err) {
@@ -363,10 +584,10 @@ document.getElementById("openSettingsBtn").addEventListener("click", async () =>
 
 const recheckHwBtn = document.getElementById("recheckHwBtn");
 recheckHwBtn.addEventListener("click", async () => {
-  await withButtonLoading(recheckHwBtn, "检测中...", async () => {
+  await withButtonLoading(recheckHwBtn, "体检中...", async () => {
     try {
-      await refreshAddonStatus(true);
-      showToast("已完成本机硬件检测", "ok");
+      await refreshOcrHub(true);
+      showToast("已完成本机硬件与离线模型体检", "ok");
     } catch (err) {
       showToast(err.message, "danger");
     }
@@ -374,39 +595,18 @@ recheckHwBtn.addEventListener("click", async () => {
 });
 
 document.getElementById("addonForceChk").addEventListener("change", () => {
-  refreshAddonStatus(false).catch(() => {});
+  if (cachedHubCatalog) renderOcrModelCards(cachedHubCatalog);
 });
 
-document.getElementById("installAddonBtn").addEventListener("click", async () => {
-  try {
-    const st = await apiJson("/api/ocr/addons/deepseek/install", {
-      method: "POST",
-      body: {
-        use_cn_mirror: document.getElementById("addonMirrorChk").checked,
-        force: document.getElementById("addonForceChk").checked,
-      },
-    });
-    renderAddonStatus(st);
-    showToast("DeepSeek-OCR 2 插件包已开始后台下载安装", "ok");
-  } catch (err) {
-    showToast(err.message, "warn");
-  }
-});
-
-document.getElementById("cancelAddonBtn").addEventListener("click", async () => {
-  const st = await apiJson("/api/ocr/addons/deepseek/cancel", { method: "POST" });
-  renderAddonStatus(st);
-});
-
-document.getElementById("uninstallAddonBtn").addEventListener("click", async () => {
-  const st = await apiJson("/api/ocr/addons/deepseek", { method: "DELETE" });
-  renderAddonStatus(st);
-  showToast("已卸载插件包并释放空间", "ok");
+document.getElementById("ocrEngineSelect").addEventListener("change", () => {
+  if (cachedHubCatalog) renderOcrModelCards(cachedHubCatalog);
 });
 
 function readOcrForm() {
   return {
     engine: document.getElementById("ocrEngineSelect").value,
+    strict_offline: document.getElementById("ocrStrictOfflineChk")?.checked !== false,
+    ollama_base_url: (document.getElementById("ocrOllamaBaseUrlInput")?.value || "http://127.0.0.1:11434").trim(),
     api_base_url: document.getElementById("ocrApiBaseUrlInput").value.trim(),
     api_model: document.getElementById("ocrApiModelInput").value.trim(),
     api_key: document.getElementById("ocrApiKeyInput").value.trim(),
@@ -428,13 +628,18 @@ function readLlmForm() {
 const testOcrApiBtn = document.getElementById("testOcrApiBtn");
 testOcrApiBtn.addEventListener("click", async () => {
   const out = document.getElementById("ocrApiTestResult");
-  out.textContent = "正在测试 DeepSeek 视觉 API 连通性...";
+  out.textContent = "正在测试视觉 API 连通性...";
   await withButtonLoading(testOcrApiBtn, "测试中...", async () => {
     try {
       const o = readOcrForm();
       const res = await apiJson("/api/ocr/test-api", {
         method: "POST",
-        body: { api_base_url: o.api_base_url, api_key: o.api_key, api_model: o.api_model },
+        body: {
+          api_base_url: o.api_base_url,
+          api_key: o.api_key,
+          api_model: o.api_model,
+          strict_offline: o.strict_offline,
+        },
       });
       out.textContent = res.message;
       out.style.color = res.ok ? "var(--ok)" : "var(--danger)";
@@ -451,7 +656,11 @@ testLlmBtn.addEventListener("click", async () => {
   out.textContent = "正在测试接口连通性...";
   await withButtonLoading(testLlmBtn, "测试中...", async () => {
     try {
-      const res = await apiJson("/api/settings/test-llm", { method: "POST", body: readLlmForm() });
+      const o = readOcrForm();
+      const res = await apiJson("/api/settings/test-llm", {
+        method: "POST",
+        body: { ...readLlmForm(), strict_offline: o.strict_offline },
+      });
       out.textContent = res.message;
       out.style.color = res.ok ? "var(--ok)" : "var(--danger)";
     } catch (err) {
@@ -532,8 +741,26 @@ function connectSse() {
     } catch {
       return;
     }
-    if (payload.type === "addon_progress") {
-      renderAddonStatus(payload.data);
+    if (payload.type === "ocr_hub_progress" || payload.type === "addon_progress") {
+      if (settingsDialog.open) {
+        const d = payload.data || {};
+        if (payload.type === "ocr_hub_progress" && cachedHubCatalog && Array.isArray(cachedHubCatalog.models) && d.model_id) {
+          const target = cachedHubCatalog.models.find((m) => m.model_id === d.model_id);
+          if (target && d.state === "downloading") {
+            Object.assign(target, {
+              state: d.state,
+              percent: d.percent,
+              downloaded_mb: d.downloaded_mb,
+              total_mb: d.total_mb,
+              speed_mb_s: d.speed_mb_s,
+              message: d.message,
+            });
+            renderOcrModelCards(cachedHubCatalog);
+            return;
+          }
+        }
+        refreshOcrHub(false).catch(() => {});
+      }
       return;
     }
     clearTimeout(sseRefreshTimer);

@@ -1,4 +1,4 @@
-"""Smart multi-engine OCR router: RapidOCR baseline + DeepSeek-OCR 2 (Local Add-on / Vision API) + Auto-Fallback."""
+"""Smart multi-engine OCR router with strict-offline privacy enforcement and multi-tier local engines."""
 
 from __future__ import annotations
 
@@ -15,9 +15,32 @@ import httpx
 import numpy as np
 
 from book_cleaner.pipeline.ocr_engine import OCRBlock, OCRResult, RapidOCREngine
+from book_cleaner.pipeline.offline_ocr_hub import _CATALOG_BY_ID, is_local_only_url
 
 
-OCREngineMode = Literal["rapidocr", "deepseek_ocr2_local", "deepseek_ocr2_api", "hybrid_smart"]
+OCREngineMode = Literal[
+    "rapidocr",
+    "ppocrv5_mobile",
+    "ppocrv5_server",
+    "ollama_glm_ocr",
+    "ollama_qwen25vl_3b",
+    "deepseek_ocr2_local",
+    "deepseek_ocr2_api",
+    "hybrid_smart",
+]
+
+VALID_OCR_ENGINES = frozenset(
+    {
+        "rapidocr",
+        "ppocrv5_mobile",
+        "ppocrv5_server",
+        "ollama_glm_ocr",
+        "ollama_qwen25vl_3b",
+        "deepseek_ocr2_local",
+        "deepseek_ocr2_api",
+        "hybrid_smart",
+    }
+)
 
 VISION_OCR_PROMPT = (
     "你是高精度的纸质书籍与档案 OCR 引擎。"
@@ -31,6 +54,8 @@ VISION_OCR_PROMPT = (
 @dataclass(slots=True)
 class OCRSettings:
     engine: OCREngineMode = "rapidocr"
+    strict_offline: bool = True
+    ollama_base_url: str = "http://127.0.0.1:11434"
     api_base_url: str = "https://api.siliconflow.cn/v1"
     api_key: str = ""
     api_model: str = "deepseek-ai/DeepSeek-OCR-2"
@@ -43,10 +68,15 @@ class OCRSettings:
         if not data:
             return cls()
         engine = str(data.get("engine", "rapidocr"))
-        if engine not in ("rapidocr", "deepseek_ocr2_local", "deepseek_ocr2_api", "hybrid_smart"):
+        if engine not in VALID_OCR_ENGINES:
             engine = "rapidocr"
+        strict_val = data.get("strict_offline", True)
+        strict_offline = bool(strict_val) if isinstance(strict_val, bool) else str(strict_val).lower() not in ("0", "false", "no")
+        ollama_url = str(data.get("ollama_base_url", "http://127.0.0.1:11434")).strip() or "http://127.0.0.1:11434"
         return cls(
             engine=engine,  # type: ignore[arg-type]
+            strict_offline=strict_offline,
+            ollama_base_url=ollama_url,
             api_base_url=str(data.get("api_base_url", "https://api.siliconflow.cn/v1")).strip(),
             api_key=str(data.get("api_key", "")).strip(),
             api_model=str(data.get("api_model", "deepseek-ai/DeepSeek-OCR-2")).strip()
@@ -79,19 +109,23 @@ def _encode_bgr_to_base64_jpeg(bgr: np.ndarray, max_dim: int = 2200) -> str:
     return base64.b64encode(buf.tobytes()).decode("ascii")
 
 
-def recognize_with_deepseek_api(
+def _call_openai_vision_ocr(
     bgr: np.ndarray,
-    cfg: OCRSettings,
+    *,
+    base_url: str,
+    api_key: str,
+    model: str,
+    timeout_s: float,
+    strict_offline: bool,
     client: httpx.Client | None = None,
 ) -> OCRResult:
-    """Call OpenAI-compatible Vision endpoint serving DeepSeek-OCR 2."""
-    if not cfg.api_base_url or not cfg.api_key:
-        raise ValueError("DeepSeek Vision API base_url and api_key are required")
+    if strict_offline and not is_local_only_url(base_url):
+        raise PermissionError("已开启涉密严格离线模式，已拦截外部云端 OCR 请求")
 
     b64 = _encode_bgr_to_base64_jpeg(bgr)
-    url = f"{cfg.api_base_url.rstrip('/')}/chat/completions"
+    url = f"{base_url.rstrip('/')}/chat/completions"
     payload = {
-        "model": cfg.api_model,
+        "model": model,
         "temperature": 0.0,
         "messages": [
             {
@@ -104,14 +138,14 @@ def recognize_with_deepseek_api(
         ],
     }
     headers = {
-        "Authorization": f"Bearer {cfg.api_key}",
+        "Authorization": f"Bearer {api_key or 'ollama'}",
         "Content-Type": "application/json",
     }
 
     if client is not None:
-        resp = client.post(url, json=payload, headers=headers, timeout=cfg.timeout_s)
+        resp = client.post(url, json=payload, headers=headers, timeout=timeout_s)
     else:
-        with httpx.Client(timeout=cfg.timeout_s) as own_client:
+        with httpx.Client(timeout=timeout_s) as own_client:
             resp = own_client.post(url, json=payload, headers=headers)
     resp.raise_for_status()
     body = resp.json()
@@ -132,12 +166,64 @@ def recognize_with_deepseek_api(
     )
 
 
+def recognize_with_deepseek_api(
+    bgr: np.ndarray,
+    cfg: OCRSettings,
+    client: httpx.Client | None = None,
+) -> OCRResult:
+    """Call OpenAI-compatible Vision endpoint (blocked unless local when strict_offline=True)."""
+    if cfg.strict_offline and not is_local_only_url(cfg.api_base_url):
+        raise PermissionError("已开启涉密严格离线模式，禁止访问外部云端 Vision API")
+    if not cfg.api_base_url or (not cfg.api_key and not is_local_only_url(cfg.api_base_url)):
+        raise ValueError("DeepSeek Vision API base_url and api_key are required")
+
+    return _call_openai_vision_ocr(
+        bgr,
+        base_url=cfg.api_base_url,
+        api_key=cfg.api_key or "local",
+        model=cfg.api_model,
+        timeout_s=cfg.timeout_s,
+        strict_offline=cfg.strict_offline,
+        client=client,
+    )
+
+
+def recognize_with_ollama_vision(
+    bgr: np.ndarray,
+    *,
+    model_name: str,
+    base_url: str = "http://127.0.0.1:11434",
+    timeout_s: float = 90.0,
+    client: httpx.Client | None = None,
+) -> OCRResult:
+    """Run local Ollama Vision OCR (GLM-OCR 0.9B / Qwen2.5-VL 3B) strictly over loopback."""
+    if not is_local_only_url(base_url):
+        raise PermissionError("本机离线 Ollama 地址必须是 127.0.0.1 / localhost")
+    openai_v1 = f"{base_url.rstrip('/')}/v1"
+    return _call_openai_vision_ocr(
+        bgr,
+        base_url=openai_v1,
+        api_key="ollama",
+        model=model_name,
+        timeout_s=timeout_s,
+        strict_offline=True,
+        client=client,
+    )
+
+
 def test_deepseek_api_connection(
     cfg: OCRSettings,
     client: httpx.Client | None = None,
 ) -> dict[str, Any]:
-    """Verify connectivity and auth against a DeepSeek-OCR 2 Vision API endpoint."""
-    if not cfg.api_base_url or not cfg.api_key:
+    """Verify connectivity and auth against a Vision API endpoint while honoring strict_offline."""
+    if cfg.strict_offline and not is_local_only_url(cfg.api_base_url):
+        return {
+            "ok": False,
+            "message": "当前已开启「涉密严格离线模式」，仅允许连接本机 127.0.0.1 / localhost 地址",
+            "model": cfg.api_model,
+            "latency_ms": 0,
+        }
+    if not cfg.api_base_url or (not cfg.api_key and not is_local_only_url(cfg.api_base_url)):
         return {
             "ok": False,
             "message": "请先填写 Vision API Base URL 和 API Key",
@@ -150,7 +236,7 @@ def test_deepseek_api_connection(
     try:
         recognize_with_deepseek_api(tiny, cfg, client=client)
         ms = int((time.perf_counter() - t0) * 1000)
-        return {"ok": True, "message": f"DeepSeek 视觉 API 连接成功 ({ms} ms)", "model": cfg.api_model, "latency_ms": ms}
+        return {"ok": True, "message": f"视觉接口连接成功 ({ms} ms)", "model": cfg.api_model, "latency_ms": ms}
     except Exception as exc:
         ms = int((time.perf_counter() - t0) * 1000)
         return {"ok": False, "message": f"连接失败: {exc}", "model": cfg.api_model, "latency_ms": ms}
@@ -188,18 +274,20 @@ def _looks_like_complex_table(blocks: list[OCRBlock]) -> bool:
 
 
 class SmartOCRRouter:
-    """Routes OCR across built-in RapidOCR and optional DeepSeek-OCR 2 (local add-on or Vision API)."""
+    """Routes OCR across offline ONNX weights, local Ollama VLMs, DeepSeek-OCR 2 CUDA, and opt-in API."""
 
     def __init__(
         self,
         db: Any,
         addon_manager: Any,
         *,
+        offline_hub: Any | None = None,
         rapid_engine: RapidOCREngine | None = None,
         api_client: httpx.Client | None = None,
     ) -> None:
         self.db = db
         self.addon_manager = addon_manager
+        self.offline_hub = offline_hub
         self.rapid_engine = rapid_engine if rapid_engine is not None else RapidOCREngine()
         self.api_client = api_client
 
@@ -228,17 +316,46 @@ class SmartOCRRouter:
             if tmp_path is not None:
                 tmp_path.unlink(missing_ok=True)
 
-    def _try_deepseek_upgrade(self, bgr: np.ndarray, cfg: OCRSettings) -> OCRResult | None:
+    def _run_best_fast_onnx(self, bgr: np.ndarray, *, low_conf_threshold: float) -> OCRResult:
+        if self.offline_hub is not None:
+            for mid in ("ppocrv5_server", "ppocrv5_mobile"):
+                eng = self.offline_hub.get_onnx_engine(mid)
+                if eng is not None:
+                    try:
+                        return eng.recognize(bgr, low_conf_threshold=low_conf_threshold)
+                    except Exception:
+                        pass
+        return self.rapid_engine.recognize(bgr, low_conf_threshold=low_conf_threshold)
+
+    def _try_vision_upgrade(self, bgr: np.ndarray, cfg: OCRSettings) -> OCRResult | None:
+        # 1. Local DeepSeek-OCR 2 CUDA add-on
         if self.addon_manager is not None and self.addon_manager.is_installed():
             try:
                 return self._run_deepseek_local(bgr)
             except Exception:
                 pass
-        if cfg.api_base_url and cfg.api_key:
-            try:
-                return recognize_with_deepseek_api(bgr, cfg, client=self.api_client)
-            except Exception:
-                pass
+        # 2. Local Ollama compact vision OCR (GLM-OCR 0.9B > Qwen2.5-VL 3B)
+        if self.offline_hub is not None and is_local_only_url(cfg.ollama_base_url):
+            for mid in ("ollama_glm_ocr", "ollama_qwen25vl_3b"):
+                cat = _CATALOG_BY_ID.get(mid)
+                if cat and self.offline_hub.is_model_installed(mid):
+                    try:
+                        return recognize_with_ollama_vision(
+                            bgr,
+                            model_name=str(cat["ollama_model"]),
+                            base_url=cfg.ollama_base_url,
+                            timeout_s=max(60.0, cfg.timeout_s),
+                            client=self.api_client,
+                        )
+                    except Exception:
+                        pass
+        # 3. Vision API (ONLY when strict_offline=False OR URL is strictly local loopback)
+        if cfg.api_base_url and (not cfg.strict_offline or is_local_only_url(cfg.api_base_url)):
+            if cfg.api_key or is_local_only_url(cfg.api_base_url):
+                try:
+                    return recognize_with_deepseek_api(bgr, cfg, client=self.api_client)
+                except Exception:
+                    pass
         return None
 
     def recognize(self, bgr: np.ndarray, *, low_conf_threshold: float = 0.82) -> OCRResult:
@@ -248,35 +365,71 @@ class SmartOCRRouter:
         if cfg.engine == "rapidocr":
             return self.rapid_engine.recognize(bgr, low_conf_threshold=low_conf_threshold)
 
+        if cfg.engine in ("ppocrv5_mobile", "ppocrv5_server"):
+            if self.offline_hub is not None:
+                eng = self.offline_hub.get_onnx_engine(cfg.engine)
+                if eng is not None:
+                    try:
+                        return eng.recognize(bgr, low_conf_threshold=low_conf_threshold)
+                    except Exception:
+                        pass
+            fallback = self.rapid_engine.recognize(bgr, low_conf_threshold=low_conf_threshold)
+            if "ocr_fallback_rapidocr" not in fallback.flags:
+                fallback.flags.append("ocr_fallback_rapidocr")
+            return fallback
+
+        if cfg.engine in ("ollama_glm_ocr", "ollama_qwen25vl_3b"):
+            cat = _CATALOG_BY_ID.get(cfg.engine)
+            if cat and is_local_only_url(cfg.ollama_base_url):
+                try:
+                    return recognize_with_ollama_vision(
+                        bgr,
+                        model_name=str(cat["ollama_model"]),
+                        base_url=cfg.ollama_base_url,
+                        timeout_s=max(60.0, cfg.timeout_s),
+                        client=self.api_client,
+                    )
+                except Exception:
+                    pass
+            fallback = self._run_best_fast_onnx(bgr, low_conf_threshold=low_conf_threshold)
+            if "ocr_fallback_rapidocr" not in fallback.flags:
+                fallback.flags.append("ocr_fallback_rapidocr")
+            return fallback
+
         if cfg.engine == "deepseek_ocr2_local":
             if self.addon_manager is not None and self.addon_manager.is_installed():
                 try:
                     return self._run_deepseek_local(bgr)
                 except Exception:
                     pass
-            fallback = self.rapid_engine.recognize(bgr, low_conf_threshold=low_conf_threshold)
+            fallback = self._run_best_fast_onnx(bgr, low_conf_threshold=low_conf_threshold)
             if "ocr_fallback_rapidocr" not in fallback.flags:
                 fallback.flags.append("ocr_fallback_rapidocr")
             return fallback
 
         if cfg.engine == "deepseek_ocr2_api":
-            if cfg.api_base_url and cfg.api_key:
+            if cfg.strict_offline and not is_local_only_url(cfg.api_base_url):
+                fallback = self._run_best_fast_onnx(bgr, low_conf_threshold=low_conf_threshold)
+                if "ocr_blocked_offline_policy" not in fallback.flags:
+                    fallback.flags.append("ocr_blocked_offline_policy")
+                return fallback
+            if cfg.api_base_url and (cfg.api_key or is_local_only_url(cfg.api_base_url)):
                 try:
                     return recognize_with_deepseek_api(bgr, cfg, client=self.api_client)
                 except Exception:
                     pass
-            fallback = self.rapid_engine.recognize(bgr, low_conf_threshold=low_conf_threshold)
+            fallback = self._run_best_fast_onnx(bgr, low_conf_threshold=low_conf_threshold)
             if "ocr_fallback_rapidocr" not in fallback.flags:
                 fallback.flags.append("ocr_fallback_rapidocr")
             return fallback
 
-        # hybrid_smart: RapidOCR first, upgrade low-conf or complex table pages to DeepSeek-OCR 2
-        rapid_res = self.rapid_engine.recognize(bgr, low_conf_threshold=low_conf_threshold)
-        need_upgrade = (rapid_res.avg_confidence < cfg.hybrid_conf_threshold) or (
-            cfg.hybrid_upgrade_tables and _looks_like_complex_table(rapid_res.blocks)
+        # hybrid_smart: best local ONNX first, upgrade low-conf or complex table to best local VLM (or opt-in API)
+        fast_res = self._run_best_fast_onnx(bgr, low_conf_threshold=low_conf_threshold)
+        need_upgrade = (fast_res.avg_confidence < cfg.hybrid_conf_threshold) or (
+            cfg.hybrid_upgrade_tables and _looks_like_complex_table(fast_res.blocks)
         )
         if need_upgrade:
-            upgraded = self._try_deepseek_upgrade(bgr, cfg)
+            upgraded = self._try_vision_upgrade(bgr, cfg)
             if upgraded is not None and upgraded.formatted_text.strip():
                 return upgraded
-        return rapid_res
+        return fast_res

@@ -212,8 +212,12 @@ def _dir_size_mb(path: Path) -> float:
     return round(total / float(1024 * 1024), 1)
 
 
+class _PausedInstallError(Exception):
+    """Raised internally when user pauses installation to keep partial files."""
+
+
 class DeepSeekAddonManager:
-    """Manages isolated hardware check, download, install, uninstall, and subprocess inference."""
+    """Manages isolated hardware check, download, install, pause/resume, uninstall, and subprocess inference."""
 
     def __init__(self, data_dir: Path | str, events: Any | None = None) -> None:
         self.data_dir = Path(data_dir).resolve()
@@ -233,6 +237,7 @@ class DeepSeekAddonManager:
         self._log_tail: str = ""
         self._active_proc: subprocess.Popen[str] | None = None
         self._cancel_requested: bool = False
+        self._pause_requested: bool = False
         self._worker_thread: threading.Thread | None = None
 
     def is_installed(self) -> bool:
@@ -257,8 +262,10 @@ class DeepSeekAddonManager:
         installed = self.is_installed()
         with self._lock:
             state = self._install_state
-            if state != "installing":
-                state = "installed" if installed else ("failed" if state == "failed" else "not_installed")
+            if installed:
+                state = "installed"
+            elif state not in ("installing", "paused", "failed"):
+                state = "not_installed"
             return {
                 "addon_id": "deepseek_ocr2",
                 "name": "DeepSeek-OCR 2 本地插件包",
@@ -304,12 +311,14 @@ class DeepSeekAddonManager:
                     tail_lines.pop(0)
                 with self._lock:
                     self._log_tail = "\n".join(tail_lines)
-            if self._cancel_requested:
+            if self._pause_requested or self._cancel_requested:
                 proc.terminate()
                 break
         rc = proc.wait()
         with self._lock:
             self._active_proc = None
+        if self._pause_requested:
+            raise _PausedInstallError("用户已暂停下载")
         if self._cancel_requested:
             raise InterruptedError("用户已取消安装")
         if rc != 0:
@@ -330,12 +339,15 @@ class DeepSeekAddonManager:
         with self._lock:
             if self._install_state == "installing":
                 return self.get_status(hardware_override=hw)
+            was_paused = self._install_state == "paused"
             self._cancel_requested = False
+            self._pause_requested = False
             self._install_state = "installing"
             self._stage = "preparing"
-            self._percent = 5
-            self._message = "正在准备独立隔离环境..."
-            self._log_tail = ""
+            self._percent = max(5, self._percent if was_paused else 5)
+            self._message = "正在从断点恢复隔离环境与权重下载..." if was_paused else "正在准备独立隔离环境..."
+            if not was_paused:
+                self._log_tail = ""
 
         def _installer() -> None:
             try:
@@ -355,11 +367,12 @@ class DeepSeekAddonManager:
                     env["UV_DEFAULT_INDEX"] = "https://pypi.tuna.tsinghua.edu.cn/simple"
                     env["HF_ENDPOINT"] = "https://hf-mirror.com"
 
-                # 1. Create isolated .venv inside data/addons/deepseek_ocr2/
-                self._set_progress("installing", "venv", 15, "正在创建插件专属 Python 3.12 隔离环境...")
-                self._run_step([uv_bin, "venv", str(self.venv_dir), "--python", "3.12", "--clear"], env=env)
-
                 py_exe = _venv_python_path(self.venv_dir)
+                # 1. Create isolated .venv inside data/addons/deepseek_ocr2/ (skip wipe if resuming)
+                if not was_paused or not py_exe.exists():
+                    self._set_progress("installing", "venv", 15, "正在创建插件专属 Python 3.12 隔离环境...")
+                    self._run_step([uv_bin, "venv", str(self.venv_dir), "--python", "3.12", "--clear"], env=env)
+                    py_exe = _venv_python_path(self.venv_dir)
                 # 2. Install CUDA PyTorch & runtime libs ONLY inside add-on venv
                 self._set_progress("installing", "deps", 35, "正在下载安装 PyTorch CUDA 与推理依赖...")
                 torch_cmd_base = [
@@ -437,8 +450,14 @@ class DeepSeekAddonManager:
                     encoding="utf-8",
                 )
                 self._set_progress("installed", "done", 100, "DeepSeek-OCR 2 插件包安装完成，可切换使用")
+            except _PausedInstallError:
+                with self._lock:
+                    cur_pct = self._percent
+                self._set_progress("paused", "paused", cur_pct, "已暂停下载安装（保留断点，可随时继续）")
             except InterruptedError:
-                self._set_progress("not_installed", "cancelled", 0, "已取消下载安装")
+                if not self.is_installed() and self.addon_dir.exists():
+                    shutil.rmtree(self.addon_dir, ignore_errors=True)
+                self._set_progress("not_installed", "cancelled", 0, "已取消下载并清理未完成文件")
             except Exception as exc:
                 self._set_progress("failed", "error", 0, f"安装失败: {exc}")
 
@@ -446,8 +465,25 @@ class DeepSeekAddonManager:
         self._worker_thread.start()
         return self.get_status(hardware_override=hw)
 
+    def pause_install(self) -> dict[str, Any]:
+        with self._lock:
+            self._pause_requested = True
+            proc = self._active_proc
+            if self._install_state == "installing" or (not self.is_installed() and self.addon_dir.exists()):
+                self._install_state = "paused"
+                self._stage = "paused"
+                self._message = "已暂停下载安装（保留断点，可随时继续）"
+        if proc is not None:
+            try:
+                proc.terminate()
+            except Exception:
+                pass
+        self._emit()
+        return self.get_status()
+
     def cancel_install(self) -> dict[str, Any]:
         with self._lock:
+            self._pause_requested = False
             self._cancel_requested = True
             proc = self._active_proc
         if proc is not None:
@@ -455,6 +491,11 @@ class DeepSeekAddonManager:
                 proc.terminate()
             except Exception:
                 pass
+        if self._worker_thread is not None and self._worker_thread.is_alive():
+            self._worker_thread.join(timeout=2.0)
+        if not self.is_installed() and self.addon_dir.exists():
+            shutil.rmtree(self.addon_dir, ignore_errors=True)
+        self._set_progress("not_installed", "cancelled", 0, "已取消下载安装")
         return self.get_status()
 
     def uninstall(self) -> dict[str, Any]:

@@ -5,6 +5,7 @@ from __future__ import annotations
 import re
 import threading
 from dataclasses import dataclass, field
+from pathlib import Path
 from typing import Any
 
 import numpy as np
@@ -214,7 +215,14 @@ def format_ocr_blocks(blocks: list[OCRBlock], img_height: int, img_width: int) -
 class RapidOCREngine:
     """Thread-safe lazy singleton wrapper around offline RapidOCR (ONNX Runtime)."""
 
-    def __init__(self) -> None:
+    def __init__(
+        self,
+        *,
+        det_model_path: str | Path | None = None,
+        rec_model_path: str | Path | None = None,
+    ) -> None:
+        self.det_model_path = Path(det_model_path) if det_model_path else None
+        self.rec_model_path = Path(rec_model_path) if rec_model_path else None
         self._init_lock = threading.Lock()
         self._infer_lock = threading.Lock()
         self._engine: Any = None
@@ -225,7 +233,12 @@ class RapidOCREngine:
                 if self._engine is None:
                     from rapidocr_onnxruntime import RapidOCR
 
-                    self._engine = RapidOCR()
+                    kwargs: dict[str, Any] = {}
+                    if self.det_model_path is not None:
+                        kwargs["det_model_path"] = str(self.det_model_path)
+                    if self.rec_model_path is not None:
+                        kwargs["rec_model_path"] = str(self.rec_model_path)
+                    self._engine = RapidOCR(**kwargs)
         return self._engine
 
     def recognize(self, bgr: np.ndarray, *, low_conf_threshold: float = 0.82) -> OCRResult:

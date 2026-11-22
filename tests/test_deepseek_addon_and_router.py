@@ -161,7 +161,7 @@ def test_smart_ocr_router_fallback_local_api_and_hybrid(tmp_path):
             )
 
         with httpx.Client(transport=httpx.MockTransport(ok_handler)) as ok_client:
-            db.update_settings({"ocr": {"engine": "deepseek_ocr2_api", "api_base_url": "https://mock.local/v1", "api_key": "sk-1"}})
+            db.update_settings({"ocr": {"engine": "deepseek_ocr2_api", "strict_offline": False, "api_base_url": "https://mock.local/v1", "api_key": "sk-1"}})
             router_api = SmartOCRRouter(db=db, addon_manager=None, rapid_engine=rapid, api_client=ok_client)
             res_api = router_api.recognize(dummy_img)
             assert "| 指标 | 值 |" in res_api.formatted_text
