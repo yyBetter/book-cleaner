@@ -3,6 +3,7 @@
 import {
   apiJson,
   el,
+  enableDialogLightDismissFallback,
   showToast,
   translateFlag,
   translateStatus,
@@ -20,6 +21,8 @@ export function createReviewAndPipelineController(state, callbacks) {
   let multiSelectMode = false;
   const selectedPageIds = new Set();
   let pipelineFilter = "ALL";
+  let pipelineItems = [];
+  let selectedPipelinePageId = null;
   let nextStepAction = "capture";
 
   // Pipeline Monitor elements
@@ -35,14 +38,23 @@ export function createReviewAndPipelineController(state, callbacks) {
   const pipeStep1Meta = document.getElementById("pipeStep1Meta");
   const pipeStep2Meta = document.getElementById("pipeStep2Meta");
   const pipeStep3Meta = document.getElementById("pipeStep3Meta");
-  const pipelinePagesBody = document.getElementById("pipelinePagesBody");
-  const pipelineJobsFold = document.getElementById("pipelineJobsFold");
+  const pipelinePagesList = document.getElementById("pipelinePagesList");
+  const pipeXrayTitle = document.getElementById("pipeXrayTitle");
+  const pipeXrayApproveBtn = document.getElementById("pipeXrayApproveBtn");
+  const pipeXrayJumpBtn = document.getElementById("pipeXrayJumpBtn");
+  const pipeXrayDeleteBtn = document.getElementById("pipeXrayDeleteBtn");
+  const pipeXrayRawImg = document.getElementById("pipeXrayRawImg");
+  const pipeXrayCleanImg = document.getElementById("pipeXrayCleanImg");
+  const pipeXrayTimeline = document.getElementById("pipeXrayTimeline");
+  const pipelineJobsDialog = document.getElementById("pipelineJobsDialog");
+  const openJobsDialogBtn = document.getElementById("openJobsDialogBtn");
   const pipelineJobsCount = document.getElementById("pipelineJobsCount");
   const pausePipelineBtn = document.getElementById("pausePipelineBtn");
   const resumePipelineBtn = document.getElementById("resumePipelineBtn");
   const retryFailedBtn = document.getElementById("retryFailedBtn");
   const jobsTableBody = document.getElementById("jobsTableBody");
   const exportJobsBody = document.getElementById("exportJobsBody");
+  enableDialogLightDismissFallback(pipelineJobsDialog);
 
   // Review elements
   const reviewGallery = document.getElementById("reviewGallery");
@@ -272,86 +284,163 @@ export function createReviewAndPipelineController(state, callbacks) {
     });
   }
 
-  async function refreshPipelinePages() {
-    if (!state.currentBookId || !pipelinePagesBody) return;
-    const qs = new URLSearchParams({
-      status: pipelineFilter,
-      order: "desc",
-      limit: "50",
-      offset: "0",
-    });
-    const data = await apiJson(`/api/books/${state.currentBookId}/pages?${qs.toString()}`);
-    const items = data.items || [];
-    pipelinePagesBody.replaceChildren();
+  const EMPTY_PIXEL = "data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7";
 
-    if (!items.length) {
-      pipelinePagesBody.appendChild(
-        el("tr", {}, [
-          el("td", {
-            colspan: "5",
-            class: "empty-state",
-            text:
-              pipelineFilter === "ALL"
-                ? "本书还没有拍照页面，请先前往「1 拍照」拍摄或拖入图片。"
-                : "当前筛选条件下暂无页面，点左上方「全部」查看整册详情。",
-          }),
-        ])
+  function renderPipelineXray(page) {
+    if (!pipeXrayTimeline) return;
+    // Reset two-step delete arm when switching selection
+    if (pipeXrayDeleteBtn) {
+      pipeXrayDeleteBtn.dataset.armed = "0";
+      pipeXrayDeleteBtn.textContent = "删废片";
+    }
+
+    if (!page) {
+      pipeXrayTitle.textContent = "请点击左侧照片查看加工详情";
+      pipeXrayApproveBtn.disabled = true;
+      pipeXrayJumpBtn.disabled = true;
+      pipeXrayDeleteBtn.disabled = true;
+      pipeXrayRawImg.src = EMPTY_PIXEL;
+      pipeXrayCleanImg.src = EMPTY_PIXEL;
+      pipeXrayTimeline.replaceChildren(
+        el("div", {
+          class: "pack-empty-state",
+          text: "左侧选择任意一页照片后，此处会对比展示「原图 vs 清洗成片」并逐项列出切边、展平、去阴影与识别出来的正文片段。",
+        })
       );
       return;
     }
 
-    for (const p of items) {
-      const rawTxt = String(p.clean_text || p.ocr_text || "").replace(/\s+/g, " ").trim();
-      const snippet = rawTxt ? rawTxt.slice(0, 26) : "（未识出文字或待处理）";
+    selectedPipelinePageId = page.id;
+    const seqLabel = `#${page.seq_no}${page.spread_side !== "S" ? page.spread_side : ""}`;
+    pipeXrayTitle.textContent = `第 ${seqLabel} 页 · ${translateStatus(page.status)}`;
+    pipeXrayApproveBtn.disabled = page.status === "APPROVED";
+    pipeXrayJumpBtn.disabled = false;
+    pipeXrayDeleteBtn.disabled = false;
 
-      // Col 1: Photo + #seq + snippet
-      const colPhoto = el("td", {}, [
-        el("div", { class: "pipe-page-cell" }, [
-          el("img", {
-            class: "pipe-thumb",
-            src: `/api/pages/${p.id}/image/thumb?t=${encodeURIComponent(p.updated_at || "")}`,
-            alt: `第 ${p.seq_no} 页`,
-            loading: "lazy",
-          }),
-          el("div", { class: "pipe-page-text" }, [
-            el("span", {
-              class: "pipe-page-title",
-              text: `#${p.seq_no}${p.spread_side !== "S" ? p.spread_side : ""} · ${translateStatus(p.status)}`,
-            }),
-            el("span", { class: "pipe-page-snippet", title: rawTxt || snippet, text: snippet }),
-          ]),
+    const ts = encodeURIComponent(page.updated_at || "");
+    const rawUrl = `/api/pages/${page.id}/image/raw?t=${ts}`;
+    const cleanUrl = page.clean_path ? `/api/pages/${page.id}/image/clean?t=${ts}` : rawUrl;
+    pipeXrayRawImg.src = rawUrl;
+    pipeXrayCleanImg.src = cleanUrl;
+
+    // 1. Capture QA Step
+    const flags = Array.isArray(page.qa_flags) ? [...page.qa_flags] : [];
+    if (page.is_duplicate && !flags.includes("duplicate_page")) flags.push("duplicate_page");
+    const qaChips = [
+      el("span", { class: "pipe-tag", text: `清晰度 ${Math.round(Number(page.blur_score || 0))}` }),
+      el("span", { class: "pipe-tag", text: `曝光 ${Math.round(Number(page.brightness || 0))}` }),
+    ];
+    if (flags.length) {
+      flags.forEach((f) => qaChips.push(el("span", { class: "pipe-tag is-warn", text: translateFlag(f) })));
+    } else {
+      qaChips.push(el("span", { class: "pipe-tag is-ok", text: "清晰无重拍" }));
+    }
+
+    // 2. Cleaning Step
+    const cleanChips = formatCleanActions(page).map((c) => el("span", { class: c.cls, text: c.label }));
+    const meta = page.clean_meta || {};
+    const sizeNote =
+      meta.output_width && meta.output_height ? `${meta.output_width}×${meta.output_height}` : "";
+
+    // 3. OCR Step
+    const ocrInfo = formatOcrSummary(page);
+    const fullTxt = String(page.clean_text || page.ocr_text || "").trim();
+
+    // 4. Plain Conclusion & Guidance
+    let verdictBadge = "正在自动排队加工";
+    let verdictCls = "pipe-tag";
+    let verdictDesc = "后台正在依次执行图像清洗与离线文字识别，完成后会自动刷新状态。";
+    if (page.status === "READY" || page.status === "APPROVED" || page.status === "LLM_DONE") {
+      verdictBadge = page.status === "APPROVED" ? "✓ 已通过终审" : "✓ 质检合格";
+      verdictCls = "pipe-tag is-ok";
+      verdictDesc = "画面清晰且识别把握度达标，可直接进入「4 表格」分拣导出，无需额外处理。";
+    } else if (page.status === "NEEDS_REVIEW") {
+      verdictBadge = "⚠ 标黄待确认";
+      verdictCls = "pipe-tag is-warn";
+      const flagNames = flags.map((f) => translateFlag(f)).join(" / ");
+      verdictDesc = flagNames
+        ? `系统怀疑存在「${flagNames}」。如果是废片点上方「删废片」；如果肉眼看字没问题点「直接通过」即可放行。`
+        : "文字识别把握度偏低，建议点「精校对比」核对一遍文字，或确认后「直接通过」。";
+    } else if (page.status === "FAILED") {
+      verdictBadge = "✕ 处理失败";
+      verdictCls = "pipe-tag is-danger";
+      verdictDesc = page.error_msg || "识别或清洗过程意外中断，可点「重试失败页」或删掉重拍。";
+    }
+
+    pipeXrayTimeline.replaceChildren(
+      el("div", { class: "pipe-tl-step" }, [
+        el("div", { class: "pipe-tl-head" }, [
+          el("span", { text: "① 拍照入库与初检" }),
+          el("span", { class: flags.length ? "pipe-tag is-warn" : "pipe-tag is-ok", text: flags.length ? "发现异常标记" : "初检通过" }),
         ]),
-      ]);
+        el("div", { class: "pipe-tags" }, qaChips),
+      ]),
+      el("div", { class: "pipe-tl-step" }, [
+        el("div", { class: "pipe-tl-head" }, [
+          el("span", { text: "② 图像美容清洗做了啥" }),
+          sizeNote ? el("span", { class: "muted-note mono", style: "font-size:11.5px;", text: sizeNote }) : el("span"),
+        ]),
+        el("div", { class: "pipe-tags" }, cleanChips),
+      ]),
+      el("div", { class: "pipe-tl-step" }, [
+        el("div", { class: "pipe-tl-head" }, [
+          el("span", { text: "③ 离线文字识别 (OCR)" }),
+          el("span", { class: ocrInfo.cls, text: `${ocrInfo.badge} · ${ocrInfo.note}` }),
+        ]),
+        el("div", {
+          class: "pipe-ocr-preview scroller",
+          text: fullTxt ? fullTxt.slice(0, 600) : "（本页暂未识出有效正文，如原图确实模糊/空白可直接当废片删掉）",
+        }),
+      ]),
+      el("div", { class: "pipe-tl-step" }, [
+        el("div", { class: "pipe-tl-head" }, [
+          el("span", { text: "④ 结论与建议" }),
+          el("span", { class: verdictCls, text: verdictBadge }),
+        ]),
+        el("div", { class: "muted-note", style: "font-size:12.5px;line-height:1.5;", text: verdictDesc }),
+      ])
+    );
+  }
 
-      // Col 2: Capture QA check
-      const qaNodes = [
-        el("span", { class: "pipe-tag", text: `清晰度 ${Math.round(Number(p.blur_score || 0))}` }),
-      ];
+  function renderPipelineList() {
+    if (!pipelinePagesList) return;
+    pipelinePagesList.replaceChildren();
+    if (!pipelineItems.length) {
+      pipelinePagesList.appendChild(
+        el("div", {
+          class: "pack-empty-state",
+          text:
+            pipelineFilter === "ALL"
+              ? "本书还没有拍照页面，请先前往「1 拍照」拍摄或拖入图片。"
+              : "当前筛选条件下暂无页面，点击上方「全部」查看整册实况。",
+        })
+      );
+      renderPipelineXray(null);
+      return;
+    }
+
+    for (const p of pipelineItems) {
+      const isSelected = selectedPipelinePageId === p.id;
+      const isWarn = p.status === "NEEDS_REVIEW" || p.status === "FAILED";
+      const rawTxt = String(p.clean_text || p.ocr_text || "").replace(/\s+/g, " ").trim();
+      const snippet = rawTxt ? rawTxt.slice(0, 42) : "（未识出文字或待处理）";
+
       const flags = Array.isArray(p.qa_flags) ? [...p.qa_flags] : [];
       if (p.is_duplicate && !flags.includes("duplicate_page")) flags.push("duplicate_page");
-      if (flags.length) {
-        for (const f of flags.slice(0, 2)) {
-          qaNodes.push(el("span", { class: "pipe-tag is-warn", text: translateFlag(f) }));
-        }
-      } else {
-        qaNodes.push(el("span", { class: "pipe-tag is-ok", text: "清晰无重拍" }));
-      }
-      const colQa = el("td", {}, [el("div", { class: "pipe-tags" }, qaNodes)]);
 
-      // Col 3: Cleaning operations
-      const cleanChips = formatCleanActions(p).map((c) => el("span", { class: c.cls, text: c.label }));
-      const colClean = el("td", {}, [el("div", { class: "pipe-tags" }, cleanChips)]);
+      const stageTags = [
+        el("span", {
+          class: flags.length ? "pipe-tag is-warn" : "pipe-tag",
+          text: flags.length ? `${translateFlag(flags[0])}` : `清晰度 ${Math.round(Number(p.blur_score || 0))}`,
+        }),
+      ];
+      formatCleanActions(p)
+        .slice(0, 3)
+        .forEach((c) => stageTags.push(el("span", { class: c.cls, text: c.label })));
 
-      // Col 4: OCR text count + confidence
       const ocrInfo = formatOcrSummary(p);
-      const colOcr = el("td", {}, [
-        el("div", { class: "pipe-tags" }, [
-          el("span", { class: ocrInfo.cls, text: ocrInfo.badge }),
-          el("span", { class: "muted-note", style: "font-size:12px;", text: ocrInfo.note }),
-        ]),
-      ]);
+      stageTags.push(el("span", { class: ocrInfo.cls, text: `${ocrInfo.badge} · ${ocrInfo.note}` }));
 
-      // Col 5: Conclusion + Quick actions
       let statusLabel = "加工中…";
       let statusCls = "pipe-tag";
       if (p.status === "READY" || p.status === "APPROVED" || p.status === "LLM_DONE") {
@@ -365,48 +454,74 @@ export function createReviewAndPipelineController(state, callbacks) {
         statusCls = "pipe-tag is-danger";
       }
 
-      const jumpBtn = el("button", {
-        type: "button",
-        class: "btn btn-compact",
-        text: "看前后对比",
-        onclick: () => {
-          if (callbacks.onJumpToReview) callbacks.onJumpToReview(p.id, "ALL");
+      const rowCard = el(
+        "button",
+        {
+          type: "button",
+          class: `pipe-row-card${isWarn ? " is-warn-row" : ""}${isSelected ? " is-selected" : ""}`,
+          onclick: () => {
+            selectedPipelinePageId = p.id;
+            renderPipelineList();
+            renderPipelineXray(p);
+          },
         },
-      });
-      const delBtn = el("button", {
-        type: "button",
-        class: "btn btn-compact btn-danger-ghost",
-        text: "删废片",
-      });
-      wireTwoStepAction(delBtn, "确认删？", async () => {
-        try {
-          await apiJson(`/api/pages/${p.id}`, { method: "DELETE" });
-          await refreshPipelinePages();
-          if (callbacks.onPagesChanged) callbacks.onPagesChanged();
-          showToast(`已移除第 #${p.seq_no} 页`, "ok");
-        } catch (err) {
-          showToast(err.message, "danger");
-        }
-      });
-
-      const colActions = el("td", {}, [
-        el("div", { class: "pipe-actions" }, [
-          el("span", { class: statusCls, text: statusLabel }),
-          jumpBtn,
-          delBtn,
-        ]),
-      ]);
-
-      pipelinePagesBody.appendChild(
-        el("tr", { class: p.status === "NEEDS_REVIEW" ? "row-warn" : "" }, [
-          colPhoto,
-          colQa,
-          colClean,
-          colOcr,
-          colActions,
-        ])
+        [
+          el("img", {
+            class: "pipe-row-thumb",
+            src: `/api/pages/${p.id}/image/thumb?t=${encodeURIComponent(p.updated_at || "")}`,
+            alt: `第 ${p.seq_no} 页`,
+            loading: "lazy",
+          }),
+          el("div", { class: "pipe-row-main" }, [
+            el("div", { class: "pipe-row-head" }, [
+              el("span", {
+                class: "pipe-row-title",
+                text: `#${p.seq_no}${p.spread_side !== "S" ? p.spread_side : ""} · ${translateStatus(p.status)}`,
+              }),
+              el("span", { class: "pipe-row-snippet", title: rawTxt || snippet, text: snippet }),
+            ]),
+            el("div", { class: "pipe-row-stages" }, stageTags),
+          ]),
+          el("div", { class: "pipe-row-side" }, [
+            el("span", { class: statusCls, text: statusLabel }),
+            el("span", { class: "muted-note", style: "font-size:11.5px;", text: isSelected ? "右侧已展开对比 →" : "点开看原图对比" }),
+          ]),
+        ]
       );
+      pipelinePagesList.appendChild(rowCard);
     }
+  }
+
+  async function refreshPipelinePages(preferPageId = null) {
+    if (!state.currentBookId || !pipelinePagesList) return;
+    const qs = new URLSearchParams({
+      status: pipelineFilter,
+      order: "desc",
+      limit: "50",
+      offset: "0",
+    });
+    const data = await apiJson(`/api/books/${state.currentBookId}/pages?${qs.toString()}`);
+    pipelineItems = data.items || [];
+
+    if (!pipelineItems.length) {
+      selectedPipelinePageId = null;
+      renderPipelineList();
+      return;
+    }
+
+    let chosen = null;
+    if (preferPageId) {
+      chosen = pipelineItems.find((p) => p.id === preferPageId) || null;
+    }
+    if (!chosen && selectedPipelinePageId) {
+      chosen = pipelineItems.find((p) => p.id === selectedPipelinePageId) || null;
+    }
+    if (!chosen) {
+      chosen = pipelineItems[0];
+    }
+    selectedPipelinePageId = chosen.id;
+    renderPipelineList();
+    renderPipelineXray(chosen);
   }
 
   async function refreshJobs() {
@@ -415,11 +530,7 @@ export function createReviewAndPipelineController(state, callbacks) {
     const items = data.items || [];
 
     if (pipelineJobsCount) {
-      pipelineJobsCount.textContent = `${items.length} 条`;
-    }
-    if (pipelineJobsFold) {
-      const hasRunning = items.some((j) => j.status === "RUNNING" || j.status === "PENDING");
-      if (hasRunning) pipelineJobsFold.open = true;
+      pipelineJobsCount.textContent = String(items.length);
     }
 
     jobsTableBody.replaceChildren();
@@ -890,6 +1001,55 @@ export function createReviewAndPipelineController(state, callbacks) {
     refreshPipelinePagesBtn.addEventListener("click", () => {
       refreshPipelinePages();
       callbacks.onStatsNeeded();
+    });
+  }
+
+  if (openJobsDialogBtn && pipelineJobsDialog) {
+    openJobsDialogBtn.addEventListener("click", async () => {
+      await refreshJobs();
+      pipelineJobsDialog.showModal();
+    });
+  }
+
+  if (pipeXrayApproveBtn) {
+    pipeXrayApproveBtn.addEventListener("click", async () => {
+      if (!selectedPipelinePageId) return;
+      await withButtonLoading(pipeXrayApproveBtn, "处理中...", async () => {
+        try {
+          await apiJson(`/api/pages/${selectedPipelinePageId}`, {
+            method: "PATCH",
+            body: { status: "APPROVED" },
+          });
+          showToast("已通过本页质检", "ok");
+          await refreshPipelinePages(selectedPipelinePageId);
+          if (callbacks.onStatsNeeded) callbacks.onStatsNeeded();
+        } catch (err) {
+          showToast(err.message, "danger");
+        }
+      });
+    });
+  }
+
+  if (pipeXrayJumpBtn) {
+    pipeXrayJumpBtn.addEventListener("click", () => {
+      if (!selectedPipelinePageId) return;
+      if (callbacks.onJumpToReview) callbacks.onJumpToReview(selectedPipelinePageId, "ALL");
+    });
+  }
+
+  if (pipeXrayDeleteBtn) {
+    wireTwoStepAction(pipeXrayDeleteBtn, "确认删废？", async () => {
+      if (!selectedPipelinePageId) return;
+      try {
+        const curIdx = pipelineItems.findIndex((x) => x.id === selectedPipelinePageId);
+        const nextCandidate = pipelineItems[curIdx + 1] || pipelineItems[curIdx - 1] || null;
+        await apiJson(`/api/pages/${selectedPipelinePageId}`, { method: "DELETE" });
+        await refreshPipelinePages(nextCandidate ? nextCandidate.id : null);
+        if (callbacks.onPagesChanged) callbacks.onPagesChanged();
+        showToast("已删除废片并清理磁盘文件", "ok");
+      } catch (err) {
+        showToast(err.message, "danger");
+      }
     });
   }
 
