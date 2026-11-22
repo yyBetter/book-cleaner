@@ -303,76 +303,82 @@
             </div>
           </div>
 
-          <!-- Right: Borderless Pure White Optical Inspector -->
-          <aside class="capture-inspector scroller">
-            <h2 class="card-title">采集遥测</h2>
-
-            <!-- Bare Typographic Telemetry (Zero Sub-Boxes) -->
-            <div id="captureQaCard" class="qa-telemetry-bare">
-              <div class="qa-telemetry-grid">
-                <div class="qa-tele-cell">
-                  <div class="qa-tele-label">清晰度</div>
-                  <div id="qaValBlur" class="qa-tele-val">-</div>
-                </div>
-                <div class="qa-tele-cell">
-                  <div class="qa-tele-label">曝光</div>
-                  <div id="qaValBright" class="qa-tele-val">-</div>
-                </div>
-                <div class="qa-tele-cell">
-                  <div class="qa-tele-label">重复</div>
-                  <div id="qaValDup" class="qa-tele-val">-</div>
-                </div>
-              </div>
-              <div class="qa-meter-track" aria-hidden="true">
-                <div id="qaBlurBar" class="qa-meter-fill"></div>
-              </div>
-              <div id="captureQaSummary" class="qa-summary-note">尚无采集记录</div>
-              <div id="captureQaMetrics" class="hidden">清晰度：- · 亮度：- · 重复校验：-</div>
+          <!-- Right: Pure White Optical Inspector (Frozen Head & Foot) -->
+          <aside class="capture-inspector">
+            <div class="capture-inspector-head">
+              <h2 class="card-title">采集遥测</h2>
             </div>
 
-            <div class="inspector-divider" role="separator"></div>
-
-            <!-- Miniature Book Spread Swatches -->
-            <div class="field-row" style="margin-bottom:0;">
-              <label for="optEnhanceMode" class="inspector-subhead">纸面成片滤镜</label>
-              <div class="paper-swatch-grid">
-                <button type="button" class="paper-swatch is-active" data-enhance-swatch="clean_color">
-                  <span class="swatch-chip swatch-chip-color" aria-hidden="true"></span>
-                  <span class="swatch-label">洁净彩页</span>
-                </button>
-                <button type="button" class="paper-swatch" data-enhance-swatch="grayscale_crisp">
-                  <span class="swatch-chip swatch-chip-gray" aria-hidden="true"></span>
-                  <span class="swatch-label">锐利灰度</span>
-                </button>
-                <button type="button" class="paper-swatch" data-enhance-swatch="bw_sauvola">
-                  <span class="swatch-chip swatch-chip-bw" aria-hidden="true"></span>
-                  <span class="swatch-label">黑白二值</span>
-                </button>
+            <div class="capture-inspector-body scroller">
+              <!-- Bare Typographic Telemetry (Zero Sub-Boxes) -->
+              <div id="captureQaCard" class="qa-telemetry-bare">
+                <div class="qa-telemetry-grid">
+                  <div class="qa-tele-cell">
+                    <div class="qa-tele-label">清晰度</div>
+                    <div id="qaValBlur" class="qa-tele-val">-</div>
+                  </div>
+                  <div class="qa-tele-cell">
+                    <div class="qa-tele-label">曝光</div>
+                    <div id="qaValBright" class="qa-tele-val">-</div>
+                  </div>
+                  <div class="qa-tele-cell">
+                    <div class="qa-tele-label">重复</div>
+                    <div id="qaValDup" class="qa-tele-val">-</div>
+                  </div>
+                </div>
+                <div class="qa-meter-track" aria-hidden="true">
+                  <div id="qaBlurBar" class="qa-meter-fill"></div>
+                </div>
+                <div id="captureQaSummary" class="qa-summary-note">尚无采集记录</div>
+                <div id="captureQaMetrics" class="hidden">清晰度：- · 亮度：- · 重复校验：-</div>
               </div>
-              <select id="optEnhanceMode" class="input hidden" aria-label="成片底色输出模式">
-                <option value="clean_color">洁净彩页漂白（保留插图印章）</option>
-                <option value="grayscale_crisp">高清锐利灰度（适合纯文印本）</option>
-                <option value="bw_sauvola">Sauvola 锐利黑白二值</option>
-              </select>
+
+              <div class="inspector-divider" role="separator"></div>
+
+              <!-- Miniature Book Spread Swatches -->
+              <div class="field-row" style="margin-bottom:0;">
+                <label for="optEnhanceMode" class="inspector-subhead">纸面成片滤镜</label>
+                <div class="paper-swatch-grid">
+                  <button type="button" class="paper-swatch is-active" data-enhance-swatch="clean_color">
+                    <span class="swatch-chip swatch-chip-color" aria-hidden="true"></span>
+                    <span class="swatch-label">洁净彩页</span>
+                  </button>
+                  <button type="button" class="paper-swatch" data-enhance-swatch="grayscale_crisp">
+                    <span class="swatch-chip swatch-chip-gray" aria-hidden="true"></span>
+                    <span class="swatch-label">锐利灰度</span>
+                  </button>
+                  <button type="button" class="paper-swatch" data-enhance-swatch="bw_sauvola">
+                    <span class="swatch-chip swatch-chip-bw" aria-hidden="true"></span>
+                    <span class="swatch-label">黑白二值</span>
+                  </button>
+                </div>
+                <select id="optEnhanceMode" class="input hidden" aria-label="成片底色输出模式">
+                  <option value="clean_color">洁净彩页漂白（保留插图印章）</option>
+                  <option value="grayscale_crisp">高清锐利灰度（适合纯文印本）</option>
+                  <option value="bw_sauvola">Sauvola 锐利黑白二值</option>
+                </select>
+              </div>
+
+              <div class="inspector-divider" role="separator"></div>
+
+              <!-- Collapsible Advanced Optical Switches -->
+              <details class="advanced-optics">
+                <summary>高级光学增强（默认已自动开启）</summary>
+                <div class="switch-stack">
+                  <label class="toggle-row"><span>双页拆单页</span><input id="optSplitSpread" class="toggle-switch" type="checkbox"></label>
+                  <label class="toggle-row"><span>智能切边矫正</span><input id="optAutoCrop" class="toggle-switch" type="checkbox" checked></label>
+                  <label class="toggle-row"><span>弯曲展平</span><input id="optDewarp" class="toggle-switch" type="checkbox" checked></label>
+                  <label class="toggle-row"><span>手指擦除</span><input id="optRemoveFingers" class="toggle-switch" type="checkbox" checked></label>
+                  <label class="toggle-row"><span>文字朝向自动转正 (90°/180°)</span><input id="optAutoRotate" class="toggle-switch" type="checkbox" checked></label>
+                  <label class="toggle-row"><span>自动纠偏</span><input id="optDeskew" class="toggle-switch" type="checkbox" checked></label>
+                  <label class="toggle-row"><span>去噪漂白</span><input id="optDenoise" class="toggle-switch" type="checkbox" checked></label>
+                </div>
+              </details>
             </div>
 
-            <div class="inspector-divider" role="separator"></div>
-
-            <!-- Collapsible Advanced Optical Switches -->
-            <details class="advanced-optics">
-              <summary>高级光学增强（默认已自动开启）</summary>
-              <div class="switch-stack">
-                <label class="toggle-row"><span>双页拆单页</span><input id="optSplitSpread" class="toggle-switch" type="checkbox"></label>
-                <label class="toggle-row"><span>智能切边矫正</span><input id="optAutoCrop" class="toggle-switch" type="checkbox" checked></label>
-                <label class="toggle-row"><span>弯曲展平</span><input id="optDewarp" class="toggle-switch" type="checkbox" checked></label>
-                <label class="toggle-row"><span>手指擦除</span><input id="optRemoveFingers" class="toggle-switch" type="checkbox" checked></label>
-                <label class="toggle-row"><span>文字朝向自动转正 (90°/180°)</span><input id="optAutoRotate" class="toggle-switch" type="checkbox" checked></label>
-                <label class="toggle-row"><span>自动纠偏</span><input id="optDeskew" class="toggle-switch" type="checkbox" checked></label>
-                <label class="toggle-row"><span>去噪漂白</span><input id="optDenoise" class="toggle-switch" type="checkbox" checked></label>
-              </div>
-            </details>
-
-            <button id="saveBookProfileBtn" type="button" class="btn btn-soft btn-block" style="margin-top:auto;">保存为本书默认模板</button>
+            <div class="capture-inspector-foot">
+              <button id="saveBookProfileBtn" type="button" class="btn btn-soft btn-block">保存为本书默认模板</button>
+            </div>
           </aside>
         </div>
       </section>
@@ -648,32 +654,38 @@
 
           <!-- Mode B: Legacy Single-Sheet Fallback (Shown cleanly only for old single-sheet templates) -->
           <div id="legacyCleanWorkbench" class="dataclean-workstation hidden">
-            <aside class="dataclean-inspector scroller">
-              <div class="toolbar-between">
-                <h2 class="card-title" style="margin:0;">单表清洗列映射</h2>
-                <button id="convertPackBtn" type="button" class="btn btn-compact">转为多 Sheet 模板包</button>
-              </div>
-              <div class="grid-2">
-                <div class="field-row">
-                  <label for="entrySheetNameInput">正文条目 Sheet</label>
-                  <input id="entrySheetNameInput" class="input" type="text" value="正文结构化条目">
-                </div>
-                <div class="field-row">
-                  <label for="tableSheetNameInput">提取表格 Sheet</label>
-                  <input id="tableSheetNameInput" class="input" type="text" value="提取表格明细">
+            <aside class="dataclean-inspector">
+              <div class="dataclean-inspector-head">
+                <div class="toolbar-between">
+                  <h2 class="card-title" style="margin:0;">单表清洗列映射</h2>
+                  <button id="convertPackBtn" type="button" class="btn btn-compact">转为多 Sheet 模板包</button>
                 </div>
               </div>
-              <div class="toolbar-between">
-                <strong class="muted-note">自定义 Excel 列映射</strong>
-                <button id="addSchemaColBtn" type="button" class="btn btn-sm">+ 新增字段列</button>
+              <div class="dataclean-inspector-body scroller">
+                <div class="grid-2">
+                  <div class="field-row">
+                    <label for="entrySheetNameInput">正文条目 Sheet</label>
+                    <input id="entrySheetNameInput" class="input" type="text" value="正文结构化条目">
+                  </div>
+                  <div class="field-row">
+                    <label for="tableSheetNameInput">提取表格 Sheet</label>
+                    <input id="tableSheetNameInput" class="input" type="text" value="提取表格明细">
+                  </div>
+                </div>
+                <div class="toolbar-between">
+                  <strong class="muted-note">自定义 Excel 列映射</strong>
+                  <button id="addSchemaColBtn" type="button" class="btn btn-sm">+ 新增字段列</button>
+                </div>
+                <div class="schema-head" aria-hidden="true">
+                  <span>列名</span><span>方式</span><span>字段 / 规则</span><span>校验</span><span></span>
+                </div>
+                <div id="schemaColList" class="schema-list scroller"></div>
               </div>
-              <div class="schema-head" aria-hidden="true">
-                <span>列名</span><span>方式</span><span>字段 / 规则</span><span>校验</span><span></span>
-              </div>
-              <div id="schemaColList" class="schema-list scroller"></div>
-              <div class="toolbar-row" style="margin-top:6px;">
-                <button id="saveTemplateBtn" type="button" class="btn btn-sm btn-soft">保存模板</button>
-                <button id="runDataCleanBtn" type="button" class="btn btn-primary" style="flex:1;">运行结构化清洗与拆表</button>
+              <div class="dataclean-inspector-foot">
+                <div class="toolbar-row">
+                  <button id="saveTemplateBtn" type="button" class="btn btn-sm btn-soft">保存模板</button>
+                  <button id="runDataCleanBtn" type="button" class="btn btn-primary" style="flex:1;">运行结构化清洗与拆表</button>
+                </div>
               </div>
             </aside>
 
@@ -796,9 +808,9 @@
           </div>
         </div>
 
-        <div class="card" style="flex:1;display:flex;flex-direction:column;min-height:220px;">
+        <div class="card export-history-card">
           <h2 class="card-title">本书导出文件历史</h2>
-          <div class="table-wrap" style="flex:1;">
+          <div class="table-wrap scroller">
             <table class="data-table">
               <thead>
                 <tr>
@@ -819,12 +831,14 @@
 
   <!-- Native light-dismiss New Book Dialog -->
   <dialog id="newBookDialog" closedby="any" aria-labelledby="newBookTitle">
-    <div class="dialog-inner">
+    <form id="newBookForm" class="dialog-shell">
       <div class="dialog-head">
-        <h2 id="newBookTitle">新建清洗书目</h2>
+        <div class="dialog-head-title-wrap">
+          <h2 id="newBookTitle">新建清洗书目</h2>
+        </div>
         <button type="button" class="btn btn-sm" data-close-dialog="newBookDialog">关闭</button>
       </div>
-      <form id="newBookForm">
+      <div class="dialog-body scroller">
         <div class="field-row">
           <label for="newBookTitleInput">书名 / 卷宗名</label>
           <input id="newBookTitleInput" class="input" type="text" required placeholder="例如：高等流体力学（第3版）">
@@ -833,180 +847,190 @@
           <label for="newBookAuthorInput">作者（可选）</label>
           <input id="newBookAuthorInput" class="input" type="text" placeholder="作者姓名">
         </div>
-        <div class="field-row">
+        <div class="field-row" style="margin-bottom:0;">
           <label for="newBookIsbnInput">ISBN / 档案编号（可选）</label>
           <input id="newBookIsbnInput" class="input" type="text" placeholder="978-...">
         </div>
+      </div>
+      <div class="dialog-foot">
         <div class="dialog-actions">
           <button type="button" class="btn" data-close-dialog="newBookDialog">取消</button>
           <button type="submit" class="btn btn-primary">创建书目</button>
         </div>
-      </form>
-    </div>
+      </div>
+    </form>
   </dialog>
 
   <!-- Native light-dismiss Settings Dialog -->
   <dialog id="settingsDialog" class="dialog-settings" closedby="any" aria-labelledby="settingsTitle">
-    <div class="dialog-inner dialog-scroll scroller">
+    <form id="settingsForm" class="dialog-shell">
       <div class="dialog-head">
-        <h2 id="settingsTitle">涉密离线 OCR 模型中心与引擎设置</h2>
+        <div class="dialog-head-title-wrap">
+          <h2 id="settingsTitle">涉密离线 OCR 模型中心与引擎设置</h2>
+          <span id="hubInstalledBadge" class="pill">内置 RapidOCR 就绪</span>
+        </div>
         <button type="button" class="btn btn-sm" data-close-dialog="settingsDialog">关闭</button>
       </div>
-      <form id="settingsForm" class="stack-sm">
-        <!-- Strict Offline Confidentiality Lock Banner -->
-        <div class="offline-lock-bar">
-          <div class="offline-lock-info">
-            <div class="toolbar-row">
-              <strong style="font-size:13.5px;">涉密严格离线模式（数据不出本机）</strong>
-              <span id="strictOfflineBadge" class="pill pill-ok">已锁定 · 禁止外传</span>
+
+      <div class="dialog-body scroller">
+        <div class="stack-sm">
+          <!-- Strict Offline Confidentiality Lock Banner -->
+          <div class="offline-lock-bar">
+            <div class="offline-lock-info">
+              <div class="toolbar-row">
+                <strong style="font-size:13.5px;">涉密严格离线模式（数据不出本机）</strong>
+                <span id="strictOfflineBadge" class="pill pill-ok">已锁定 · 禁止外传</span>
+              </div>
+              <div id="strictOfflineDesc" class="muted-note" style="margin-top:3px;">
+                开启后：图片识别、表格抽取与模型推理 100% 在本地运行，系统自动拦截所有非 127.0.0.1 / localhost 外部云端请求。
+              </div>
             </div>
-            <div id="strictOfflineDesc" class="muted-note" style="margin-top:3px;">
-              开启后：图片识别、表格抽取与模型推理 100% 在本地运行，系统自动拦截所有非 127.0.0.1 / localhost 外部云端请求。
-            </div>
+            <label class="toggle-item toggle-compact" style="flex:none;">
+              <input id="ocrStrictOfflineChk" class="toggle-switch" type="checkbox" checked>
+            </label>
           </div>
-          <label class="toggle-item toggle-compact" style="flex:none;">
-            <input id="ocrStrictOfflineChk" class="toggle-switch" type="checkbox" checked>
-          </label>
+
+          <div class="settings-section">
+            <input type="hidden" id="ocrEngineValue" value="rapidocr">
+
+            <!-- Single-Source-of-Truth Active Engine & Routing Mode Strip -->
+            <div class="ocr-active-strip" style="margin-bottom:10px;">
+              <div class="ocr-active-meta">
+                <div class="toolbar-row" style="gap:8px;">
+                  <strong style="font-size:13px;">当前生效引擎</strong>
+                  <span id="ocrCurrentEngineBadge" class="pill pill-ok">RapidOCR 离线</span>
+                </div>
+                <div id="ocrModeHint" class="muted-note" style="font-size:12px;">点击下方已就绪卡片即刻切换并生效</div>
+              </div>
+              <div class="segmented-bar" role="group" aria-label="OCR 调度模式">
+                <button type="button" class="seg-btn is-active" data-ocr-route-mode="single">单模型直出</button>
+                <button type="button" class="seg-btn" data-ocr-route-mode="hybrid_smart">离线智能混合</button>
+                <button type="button" class="seg-btn" data-ocr-route-mode="deepseek_ocr2_api">Vision API</button>
+              </div>
+            </div>
+
+            <!-- Hardware Check & Smart Offline Model Hub -->
+            <div id="hwCheckBox" class="panel-subcard" style="margin:0 0 10px;">
+              <div class="toolbar-between" style="margin-bottom:6px;gap:8px;flex-wrap:wrap;">
+                <strong style="font-size:12.5px;">本机硬件体检与离线 OCR 智能推荐</strong>
+                <div class="toolbar-row" style="gap:6px;flex-wrap:wrap;">
+                  <label for="ocrOllamaBaseUrlInput" class="muted-note" style="font-size:11.5px;">本机 Ollama 地址</label>
+                  <input id="ocrOllamaBaseUrlInput" class="input mono" style="width:190px;padding:4px 8px;font-size:12px;" type="url" placeholder="http://127.0.0.1:11434" value="http://127.0.0.1:11434">
+                  <button id="recheckHwBtn" type="button" class="btn btn-sm">重新检测硬件</button>
+                </div>
+              </div>
+              <div id="hwSummaryText" class="muted-note">正在体检本机 CPU / 内存 / 显卡 / 磁盘 / Ollama...</div>
+              <div id="ocrHubRecommendation" class="ocr-hub-rec">正在匹配适合当前电脑的离线 OCR 方案...</div>
+            </div>
+
+            <div class="toolbar-between" style="margin-bottom:8px;">
+              <div class="toolbar-row">
+                <label class="toggle-item toggle-compact">
+                  <input id="addonMirrorChk" class="toggle-switch" type="checkbox" checked>
+                  <span>优先国内镜像源 (ModelScope / hf-mirror)</span>
+                </label>
+                <label class="toggle-item toggle-compact">
+                  <input id="addonForceChk" class="toggle-switch" type="checkbox">
+                  <span>忽略硬件限制强行下载</span>
+                </label>
+              </div>
+            </div>
+
+            <!-- Multi-Tier Offline Model Cards (Click to activate immediately + Download / Pause / Resume / Uninstall) -->
+            <div id="ocrModelCardList" class="ocr-hub-grid" aria-live="polite"></div>
+          </div>
+
+          <details id="ocrVisionApiDetails" class="settings-section section-divider">
+            <summary style="cursor:pointer;font-weight:700;font-size:13px;">2. 可选：智能混合阈值与外部/局域网 Vision API 设置</summary>
+            <div style="margin-top:10px;">
+              <div id="strictOfflineApiNote" class="muted-note" style="margin-bottom:8px;color:var(--ok);">
+                当前处于涉密严格离线模式：除本机 127.0.0.1 / localhost 地址外，系统将自动拦截外部视觉 API 请求。
+              </div>
+              <div class="grid-2" style="margin-bottom:8px;">
+                <div class="field-row">
+                  <label for="ocrApiBaseUrlInput">Vision API Base URL</label>
+                  <input id="ocrApiBaseUrlInput" class="input" type="url" placeholder="https://api.siliconflow.cn/v1">
+                </div>
+                <div class="field-row">
+                  <label for="ocrApiModelInput">视觉模型名称</label>
+                  <input id="ocrApiModelInput" class="input" type="text" placeholder="deepseek-ai/DeepSeek-OCR-2">
+                </div>
+              </div>
+              <div class="grid-split" style="margin-bottom:8px;">
+                <div class="field-row">
+                  <label for="ocrApiKeyInput">Vision API Key</label>
+                  <input id="ocrApiKeyInput" class="input" type="password" placeholder="sk-...">
+                </div>
+                <div class="field-row">
+                  <label for="ocrHybridConfInput">混合升级阈值</label>
+                  <input id="ocrHybridConfInput" class="input" type="number" step="0.01" min="0.50" max="0.99" value="0.85">
+                </div>
+              </div>
+              <div class="toolbar-between">
+                <label class="toggle-item toggle-compact">
+                  <input id="ocrHybridTablesChk" class="toggle-switch" type="checkbox" checked>
+                  <span>复杂多列表格自动升级高精度视觉引擎</span>
+                </label>
+                <button id="testOcrApiBtn" type="button" class="btn btn-sm">测试视觉接口</button>
+              </div>
+              <div id="ocrApiTestResult" class="muted-note" style="min-height:16px;margin-top:4px;"></div>
+            </div>
+          </details>
+
+          <details class="settings-section section-divider">
+            <summary style="cursor:pointer;font-weight:700;font-size:13px;">3. 可选：文本级 LLM 精校设置（默认关闭；涉密模式仅放行本机回环地址）</summary>
+            <div style="margin-top:10px;">
+              <div class="field-row">
+                <label for="llmModeSelect">大模型辅助校对触发策略（默认关闭，离线零费用）</label>
+                <select id="llmModeSelect" class="input">
+                  <option value="off">关闭（100% 纯本地离线运行）</option>
+                  <option value="auto_low_conf">仅对低置信度 / 疑似乱码页按需精校（省 80%+ 费用）</option>
+                  <option value="all">全部页面自动调用精校</option>
+                </select>
+              </div>
+              <div class="field-row">
+                <label for="llmBaseUrlInput">OpenAI 兼容接口 Base URL（本机 Ollama 可填 http://127.0.0.1:11434/v1）</label>
+                <input id="llmBaseUrlInput" class="input" type="url" placeholder="http://127.0.0.1:11434/v1">
+              </div>
+              <div class="field-row">
+                <label for="llmModelInput">模型名称</label>
+                <input id="llmModelInput" class="input" type="text" placeholder="qwen2.5:7b / gpt-4o-mini">
+              </div>
+              <div class="field-row">
+                <label for="llmApiKeyInput">API Key（仅保存在本机 SQLite）</label>
+                <input id="llmApiKeyInput" class="input" type="password" placeholder="本机 Ollama 填 ollama">
+              </div>
+              <div class="field-row" style="margin-bottom:8px;">
+                <label for="llmLowConfInput">自动触发精校的 OCR 置信度阈值 (0.50 - 0.99)</label>
+                <input id="llmLowConfInput" class="input" type="number" step="0.01" min="0.50" max="0.99" value="0.85">
+              </div>
+              <div id="llmTestResult" class="muted-note" style="min-height:18px;margin-bottom:6px;"></div>
+              <button id="testLlmBtn" type="button" class="btn btn-sm">测试文本 LLM 连通性</button>
+            </div>
+          </details>
         </div>
+      </div>
 
-        <div class="settings-section">
-          <div class="toolbar-between" style="margin-bottom:8px;">
-            <strong style="font-size:13.5px;">1. 选择当前识别引擎</strong>
-            <span id="hubInstalledBadge" class="pill">内置 RapidOCR 就绪</span>
-          </div>
-
-          <div class="grid-2" style="margin-bottom:8px;">
-            <div class="field-row" style="margin-bottom:0;">
-              <label for="ocrEngineSelect">当前工作模式</label>
-              <select id="ocrEngineSelect" class="input">
-                <option value="rapidocr">RapidOCR 内置极速离线版（PP-OCRv4，零下载通用）</option>
-                <option value="ppocrv5_mobile">PP-OCRv5 轻量离线增强包（~21 MB 纯 CPU 通用）</option>
-                <option value="ppocrv5_server">PP-OCRv5 高精度离线权重包（无独显推荐）</option>
-                <option value="ollama_glm_ocr">GLM-OCR 0.9B 本地视觉版（本机 Ollama，复杂表/手写强）</option>
-                <option value="ollama_qwen25vl_3b">Qwen2.5-VL 3B 本地视觉增强版（本机 Ollama，手写语义）</option>
-                <option value="deepseek_ocr2_local">DeepSeek-OCR 2 旗舰 CUDA 本地包（NVIDIA ≥ 8GB）</option>
-                <option value="hybrid_smart">离线智能混合（快速本地扫描 + 复杂/低分自动升本地视觉）</option>
-                <option value="deepseek_ocr2_api">Vision API（仅关闭涉密离线锁或连接本机回环可用）</option>
-              </select>
-            </div>
-            <div class="field-row" style="margin-bottom:0;">
-              <label for="ocrOllamaBaseUrlInput">本机 Ollama 地址（仅限 127.0.0.1 / localhost）</label>
-              <input id="ocrOllamaBaseUrlInput" class="input mono" type="url" placeholder="http://127.0.0.1:11434" value="http://127.0.0.1:11434">
-            </div>
-          </div>
-
-          <!-- Hardware Check & Smart Offline Model Hub -->
-          <div id="hwCheckBox" class="panel-subcard" style="margin:10px 0;">
-            <div class="toolbar-between" style="margin-bottom:4px;">
-              <strong style="font-size:12.5px;">本机硬件体检与离线 OCR 智能推荐</strong>
-              <button id="recheckHwBtn" type="button" class="btn btn-sm">重新检测硬件</button>
-            </div>
-            <div id="hwSummaryText" class="muted-note">正在体检本机 CPU / 内存 / 显卡 / 磁盘 / Ollama...</div>
-            <div id="ocrHubRecommendation" class="ocr-hub-rec">正在匹配适合当前电脑的离线 OCR 方案...</div>
-          </div>
-
-          <div class="toolbar-between" style="margin-bottom:8px;">
-            <div class="toolbar-row">
-              <label class="toggle-item toggle-compact">
-                <input id="addonMirrorChk" class="toggle-switch" type="checkbox" checked>
-                <span>优先国内镜像源 (ModelScope / hf-mirror)</span>
-              </label>
-              <label class="toggle-item toggle-compact">
-                <input id="addonForceChk" class="toggle-switch" type="checkbox">
-                <span>忽略硬件限制强行下载</span>
-              </label>
-            </div>
-          </div>
-
-          <!-- Multi-Tier Offline Model Cards (with Download / Pause / Resume / Cancel / Uninstall) -->
-          <div id="ocrModelCardList" class="ocr-hub-grid" aria-live="polite"></div>
-        </div>
-
-        <details class="settings-section section-divider">
-          <summary style="cursor:pointer;font-weight:700;font-size:13px;">2. 可选：智能混合阈值与外部/局域网 Vision API 设置</summary>
-          <div style="margin-top:10px;">
-            <div id="strictOfflineApiNote" class="muted-note" style="margin-bottom:8px;color:var(--ok);">
-              当前处于涉密严格离线模式：除本机 127.0.0.1 / localhost 地址外，系统将自动拦截外部视觉 API 请求。
-            </div>
-            <div class="grid-2" style="margin-bottom:8px;">
-              <div class="field-row">
-                <label for="ocrApiBaseUrlInput">Vision API Base URL</label>
-                <input id="ocrApiBaseUrlInput" class="input" type="url" placeholder="https://api.siliconflow.cn/v1">
-              </div>
-              <div class="field-row">
-                <label for="ocrApiModelInput">视觉模型名称</label>
-                <input id="ocrApiModelInput" class="input" type="text" placeholder="deepseek-ai/DeepSeek-OCR-2">
-              </div>
-            </div>
-            <div class="grid-split" style="margin-bottom:8px;">
-              <div class="field-row">
-                <label for="ocrApiKeyInput">Vision API Key</label>
-                <input id="ocrApiKeyInput" class="input" type="password" placeholder="sk-...">
-              </div>
-              <div class="field-row">
-                <label for="ocrHybridConfInput">混合升级阈值</label>
-                <input id="ocrHybridConfInput" class="input" type="number" step="0.01" min="0.50" max="0.99" value="0.85">
-              </div>
-            </div>
-            <div class="toolbar-between">
-              <label class="toggle-item toggle-compact">
-                <input id="ocrHybridTablesChk" class="toggle-switch" type="checkbox" checked>
-                <span>复杂多列表格自动升级高精度视觉引擎</span>
-              </label>
-              <button id="testOcrApiBtn" type="button" class="btn btn-sm">测试视觉接口</button>
-            </div>
-            <div id="ocrApiTestResult" class="muted-note" style="min-height:16px;margin-top:4px;"></div>
-          </div>
-        </details>
-
-        <details class="settings-section section-divider">
-          <summary style="cursor:pointer;font-weight:700;font-size:13px;">3. 可选：文本级 LLM 精校设置（默认关闭；涉密模式仅放行本机回环地址）</summary>
-          <div style="margin-top:10px;">
-            <div class="field-row">
-              <label for="llmModeSelect">大模型辅助校对触发策略（默认关闭，离线零费用）</label>
-              <select id="llmModeSelect" class="input">
-                <option value="off">关闭（100% 纯本地离线运行）</option>
-                <option value="auto_low_conf">仅对低置信度 / 疑似乱码页按需精校（省 80%+ 费用）</option>
-                <option value="all">全部页面自动调用精校</option>
-              </select>
-            </div>
-            <div class="field-row">
-              <label for="llmBaseUrlInput">OpenAI 兼容接口 Base URL（本机 Ollama 可填 http://127.0.0.1:11434/v1）</label>
-              <input id="llmBaseUrlInput" class="input" type="url" placeholder="http://127.0.0.1:11434/v1">
-            </div>
-            <div class="field-row">
-              <label for="llmModelInput">模型名称</label>
-              <input id="llmModelInput" class="input" type="text" placeholder="qwen2.5:7b / gpt-4o-mini">
-            </div>
-            <div class="field-row">
-              <label for="llmApiKeyInput">API Key（仅保存在本机 SQLite）</label>
-              <input id="llmApiKeyInput" class="input" type="password" placeholder="本机 Ollama 填 ollama">
-            </div>
-            <div class="field-row">
-              <label for="llmLowConfInput">自动触发精校的 OCR 置信度阈值 (0.50 - 0.99)</label>
-              <input id="llmLowConfInput" class="input" type="number" step="0.01" min="0.50" max="0.99" value="0.85">
-            </div>
-            <div id="llmTestResult" class="muted-note" style="min-height:18px;margin-bottom:6px;"></div>
-            <button id="testLlmBtn" type="button" class="btn btn-sm">测试文本 LLM 连通性</button>
-          </div>
-        </details>
-
+      <div class="dialog-foot">
+        <div id="ocrActiveFooterSummary" class="dialog-foot-status muted-note">当前生效：RapidOCR 离线（选模型自动保存）</div>
         <div class="dialog-actions">
-          <button type="button" class="btn" data-close-dialog="settingsDialog">取消</button>
+          <button type="button" class="btn" data-close-dialog="settingsDialog">关闭</button>
           <button type="submit" class="btn btn-primary">保存全部设置</button>
         </div>
-      </form>
-    </div>
+      </div>
+    </form>
   </dialog>
 
   <!-- Native light-dismiss New Excel Template Dialog -->
   <dialog id="newTemplateDialog" closedby="any" aria-labelledby="newTemplateTitle">
-    <div class="dialog-inner">
+    <form id="newTemplateForm" class="dialog-shell">
       <div class="dialog-head">
-        <h2 id="newTemplateTitle">新建多 Sheet 清洗模板包</h2>
+        <div class="dialog-head-title-wrap">
+          <h2 id="newTemplateTitle">新建多 Sheet 清洗模板包</h2>
+        </div>
         <button type="button" class="btn btn-sm" data-close-dialog="newTemplateDialog">关闭</button>
       </div>
-      <form id="newTemplateForm">
+      <div class="dialog-body scroller">
         <div class="field-row">
           <label for="newTemplatePresetSelect">起步商业样板（10 秒对号入座）</label>
           <select id="newTemplatePresetSelect" class="input"></select>
@@ -1016,57 +1040,67 @@
           <label for="newTemplateNameInput">模板名称</label>
           <input id="newTemplateNameInput" class="input" type="text" required placeholder="例如：设备参数台账清洗模板">
         </div>
-        <div class="field-row">
+        <div class="field-row" style="margin-bottom:0;">
           <label for="newTemplateDescInput">适用场景说明（可选）</label>
           <input id="newTemplateDescInput" class="input" type="text" placeholder="基于所选商业样板复制子表结构与映射规则">
         </div>
+      </div>
+      <div class="dialog-foot">
         <div class="dialog-actions">
           <button type="button" class="btn" data-close-dialog="newTemplateDialog">取消</button>
           <button type="submit" class="btn btn-primary">创建模板</button>
         </div>
-      </form>
-    </div>
+      </div>
+    </form>
   </dialog>
 
   <!-- Native light-dismiss Cleaning Rules & CatBoost Dialog -->
   <dialog id="cleanRulesDialog" closedby="any" aria-labelledby="cleanRulesTitle">
-    <div class="dialog-inner">
+    <div class="dialog-shell">
       <div class="dialog-head">
-        <h2 id="cleanRulesTitle">通用清洗规则与 CatBoost 建模导出</h2>
+        <div class="dialog-head-title-wrap">
+          <h2 id="cleanRulesTitle">通用清洗规则与 CatBoost 建模导出</h2>
+        </div>
         <button type="button" class="btn btn-sm" data-close-dialog="cleanRulesDialog">关闭</button>
       </div>
-      <div class="switch-stack" style="margin-bottom:14px;">
-        <label class="toggle-row"><span>全角数字字母转半角</span><input id="ruleFullwidthChk" class="toggle-switch" type="checkbox" checked></label>
-        <label class="toggle-row"><span>日期统一 YYYY-MM-DD</span><input id="ruleDatesChk" class="toggle-switch" type="checkbox" checked></label>
-        <label class="toggle-row"><span>剔除重复页眉 / 页脚</span><input id="ruleHeadersChk" class="toggle-switch" type="checkbox" checked></label>
-        <label class="toggle-row"><span>剔除乱码与控制符</span><input id="ruleNoiseChk" class="toggle-switch" type="checkbox" checked></label>
-        <label class="toggle-row"><span>正文条目自动去重</span><input id="ruleDedupChk" class="toggle-switch" type="checkbox" checked></label>
-        <label class="toggle-row">
-          <span>低置信标黄阈值</span>
-          <input id="ruleMinConfInput" type="number" step="0.01" min="0.50" max="0.99" value="0.82" style="width:74px;padding:3px 6px;" class="input">
-        </label>
-        <label class="toggle-row"><span>导出时附带 CatBoost 建模宽表（含多目标 y 与字段契约）</span><input id="ruleCatboostModeChk" class="toggle-switch" type="checkbox" checked></label>
-        <label class="toggle-row"><span>导出前自动脱敏敏感信息 (PII 掩码)</span><input id="ruleRedactPiiChk" class="toggle-switch" type="checkbox"></label>
-        <div class="field-row" style="margin-top:8px;margin-bottom:0;">
-          <label for="ruleCustomRedactInput">自定义脱敏敏感词（逗号隔开）</label>
-          <input id="ruleCustomRedactInput" class="input" type="text" placeholder="例如：工厂名称, 客户代号, 内部项目名">
+      <div class="dialog-body scroller">
+        <div class="switch-stack">
+          <label class="toggle-row"><span>全角数字字母转半角</span><input id="ruleFullwidthChk" class="toggle-switch" type="checkbox" checked></label>
+          <label class="toggle-row"><span>日期统一 YYYY-MM-DD</span><input id="ruleDatesChk" class="toggle-switch" type="checkbox" checked></label>
+          <label class="toggle-row"><span>剔除重复页眉 / 页脚</span><input id="ruleHeadersChk" class="toggle-switch" type="checkbox" checked></label>
+          <label class="toggle-row"><span>剔除乱码与控制符</span><input id="ruleNoiseChk" class="toggle-switch" type="checkbox" checked></label>
+          <label class="toggle-row"><span>正文条目自动去重</span><input id="ruleDedupChk" class="toggle-switch" type="checkbox" checked></label>
+          <label class="toggle-row">
+            <span>低置信标黄阈值</span>
+            <input id="ruleMinConfInput" type="number" step="0.01" min="0.50" max="0.99" value="0.82" style="width:74px;padding:3px 6px;" class="input">
+          </label>
+          <label class="toggle-row"><span>导出时附带 CatBoost 建模宽表（含多目标 y 与字段契约）</span><input id="ruleCatboostModeChk" class="toggle-switch" type="checkbox" checked></label>
+          <label class="toggle-row"><span>导出前自动脱敏敏感信息 (PII 掩码)</span><input id="ruleRedactPiiChk" class="toggle-switch" type="checkbox"></label>
+          <div class="field-row" style="margin-top:8px;margin-bottom:0;">
+            <label for="ruleCustomRedactInput">自定义脱敏敏感词（逗号隔开）</label>
+            <input id="ruleCustomRedactInput" class="input" type="text" placeholder="例如：工厂名称, 客户代号, 内部项目名">
+          </div>
         </div>
       </div>
-      <div class="dialog-actions">
-        <button type="button" class="btn" data-close-dialog="cleanRulesDialog">取消</button>
-        <button id="saveRulesDialogBtn" type="button" class="btn btn-primary">保存规则并重新匹配</button>
+      <div class="dialog-foot">
+        <div class="dialog-actions">
+          <button type="button" class="btn" data-close-dialog="cleanRulesDialog">取消</button>
+          <button id="saveRulesDialogBtn" type="button" class="btn btn-primary">保存规则并重新匹配</button>
+        </div>
       </div>
     </div>
   </dialog>
 
   <!-- Native light-dismiss Add Sheet Drawer Dialog -->
   <dialog id="addSheetDialog" closedby="any" aria-labelledby="addSheetTitle">
-    <div class="dialog-inner">
+    <form id="addSheetForm" class="dialog-shell">
       <div class="dialog-head">
-        <h2 id="addSheetTitle">新增模板 Sheet 子表抽屉</h2>
+        <div class="dialog-head-title-wrap">
+          <h2 id="addSheetTitle">新增模板 Sheet 子表抽屉</h2>
+        </div>
         <button type="button" class="btn btn-sm" data-close-dialog="addSheetDialog">关闭</button>
       </div>
-      <form id="addSheetForm">
+      <div class="dialog-body scroller">
         <div class="field-row">
           <label for="newSheetNameInput">子表名称（Excel Sheet 名）</label>
           <input id="newSheetNameInput" class="input" type="text" required placeholder="例如：消泡与补料记录 / 成品检测_Y">
@@ -1083,26 +1117,30 @@
           <label for="newSheetKeywordsInput">认亲关键词（用中文或英文逗号隔开）</label>
           <input id="newSheetKeywordsInput" class="input" type="text" placeholder="例如：补料, 消泡, 流速, 糖液">
         </div>
-        <div class="field-row">
+        <div class="field-row" style="margin-bottom:0;">
           <label for="newSheetFieldsInput">初始目标列名（逗号隔开，y_ 开头自动识别为预测目标）</label>
           <input id="newSheetFieldsInput" class="input" type="text" value="批次号, 记录时刻, 指标数值, 备注" placeholder="例如：批次号, 温度, pH, y_产出指标">
         </div>
+      </div>
+      <div class="dialog-foot">
         <div class="dialog-actions">
           <button type="button" class="btn" data-close-dialog="addSheetDialog">取消</button>
           <button type="submit" class="btn btn-primary">添加子表</button>
         </div>
-      </form>
-    </div>
+      </div>
+    </form>
   </dialog>
 
   <!-- Native light-dismiss Batch Import & Export Jobs Dialog -->
   <dialog id="pipelineJobsDialog" class="dialog-settings" closedby="any" aria-labelledby="pipelineJobsTitle">
-    <div class="dialog-inner dialog-scroll scroller">
+    <div class="dialog-shell">
       <div class="dialog-head">
-        <h2 id="pipelineJobsTitle">批量目录导入与文件导出后台任务记录</h2>
+        <div class="dialog-head-title-wrap">
+          <h2 id="pipelineJobsTitle">批量目录导入与文件导出后台任务记录</h2>
+        </div>
         <button type="button" class="btn btn-sm" data-close-dialog="pipelineJobsDialog">关闭</button>
       </div>
-      <div class="table-wrap">
+      <div class="dialog-body dialog-body-flush scroller">
         <table class="data-table">
           <thead>
             <tr>
@@ -1122,65 +1160,75 @@
 
   <!-- Native light-dismiss Keyboard Shortcuts Dialog -->
   <dialog id="shortcutsDialog" closedby="any" aria-labelledby="shortcutsTitle">
-    <div class="dialog-inner">
+    <div class="dialog-shell">
       <div class="dialog-head">
-        <h2 id="shortcutsTitle">光学工作台快捷键指南</h2>
+        <div class="dialog-head-title-wrap">
+          <h2 id="shortcutsTitle">光学工作台快捷键指南</h2>
+        </div>
         <button type="button" class="btn btn-sm" data-close-dialog="shortcutsDialog">关闭</button>
       </div>
-      <div class="shortcut-grid">
-        <div><kbd class="kbd">Space</kbd> / <kbd class="kbd">Enter</kbd></div><div>采集工位触发拍照入库（兼容 USB 脚踏开关）</div>
-        <div><kbd class="kbd">Backspace</kbd></div><div>立即撤销上一张废片并重置重复校验</div>
-        <div><kbd class="kbd">J</kbd> / <kbd class="kbd">K</kbd></div><div>复核界面切换下一页 / 上一页</div>
-        <div><kbd class="kbd">A</kbd></div><div>复核界面保存当前文本并一键通过</div>
-        <div><kbd class="kbd">Ctrl+S</kbd></div><div>校对框内直接保存文本修订</div>
-        <div><kbd class="kbd">滚轮</kbd> / <kbd class="kbd">双击</kbd></div><div>复核纸面缩放细节，放大后可拖拽平移；<kbd class="kbd">Esc</kbd> 取消定位框锁定</div>
-        <div><kbd class="kbd">?</kbd></div><div>打开 / 关闭本快捷键指南</div>
+      <div class="dialog-body scroller">
+        <div class="shortcut-grid">
+          <div><kbd class="kbd">Space</kbd> / <kbd class="kbd">Enter</kbd></div><div>采集工位触发拍照入库（兼容 USB 脚踏开关）</div>
+          <div><kbd class="kbd">Backspace</kbd></div><div>立即撤销上一张废片并重置重复校验</div>
+          <div><kbd class="kbd">J</kbd> / <kbd class="kbd">K</kbd></div><div>复核界面切换下一页 / 上一页</div>
+          <div><kbd class="kbd">A</kbd></div><div>复核界面保存当前文本并一键通过</div>
+          <div><kbd class="kbd">Ctrl+S</kbd></div><div>校对框内直接保存文本修订</div>
+          <div><kbd class="kbd">滚轮</kbd> / <kbd class="kbd">双击</kbd></div><div>复核纸面缩放细节，放大后可拖拽平移；<kbd class="kbd">Esc</kbd> 取消定位框锁定</div>
+          <div><kbd class="kbd">?</kbd></div><div>打开 / 关闭本快捷键指南</div>
+        </div>
       </div>
     </div>
   </dialog>
 
   <!-- Native light-dismiss Offline License Dialog -->
   <dialog id="licenseDialog" closedby="any" aria-labelledby="licenseDialogTitle">
-    <div class="dialog-inner">
+    <div class="dialog-shell">
       <div class="dialog-head">
-        <h2 id="licenseDialogTitle">离线授权与激活 · SuperScanner</h2>
+        <div class="dialog-head-title-wrap">
+          <h2 id="licenseDialogTitle">离线授权与激活 · SuperScanner</h2>
+        </div>
         <button type="button" class="btn btn-sm" data-close-dialog="licenseDialog">关闭</button>
       </div>
-      <div class="stack-sm">
-        <div class="license-status-card">
-          <div class="toolbar-between" style="gap:10px;">
-            <span id="licenseTierBadge" class="pill pill-warn">免费体验版</span>
-            <span id="licenseExpiryText" class="muted-note">单次最多导出前 5 页</span>
+      <div class="dialog-body scroller">
+        <div class="stack-sm">
+          <div class="license-status-card">
+            <div class="toolbar-between" style="gap:10px;">
+              <span id="licenseTierBadge" class="pill pill-warn">免费体验版</span>
+              <span id="licenseExpiryText" class="muted-note">单次最多导出前 5 页</span>
+            </div>
+            <div id="licenseStatusDesc" class="muted-note" style="margin-top:8px;">
+              免费体验版支持完整拍照、图像清洗、复核对比与模板分拣预览；导出阶段限制每次前 5 页。
+            </div>
+            <div id="licenseNoteText" class="muted-note hidden" style="margin-top:4px;"></div>
+            <div class="muted-note" style="margin-top:6px;">
+              采用纯本地 Ed25519 非对称公钥验签，全程无需联网校验，严守涉密离线红线。
+            </div>
           </div>
-          <div id="licenseStatusDesc" class="muted-note" style="margin-top:8px;">
-            免费体验版支持完整拍照、图像清洗、复核对比与模板分拣预览；导出阶段限制每次前 5 页。
-          </div>
-          <div id="licenseNoteText" class="muted-note hidden" style="margin-top:4px;"></div>
-          <div class="muted-note" style="margin-top:6px;">
-            采用纯本地 Ed25519 非对称公钥验签，全程无需联网校验，严守涉密离线红线。
-          </div>
-        </div>
 
-        <div class="field-row" style="margin-bottom:0;">
-          <label for="licenseMachineCode">本机硬件机器码（复制发给作者即可换取离线激活码）</label>
-          <div class="license-code-row">
-            <code id="licenseMachineCode" class="license-code-value mono">正在读取本机指纹...</code>
-            <button id="copyMachineCodeBtn" type="button" class="btn btn-sm">一键复制</button>
-          </div>
-        </div>
-
-        <form id="licenseActivateForm" class="stack-sm">
           <div class="field-row" style="margin-bottom:0;">
-            <label for="licenseKeyInput">输入离线激活码</label>
-            <textarea id="licenseKeyInput" class="input mono" rows="3" placeholder="粘贴以 SS1. 开头的完整离线激活码..."></textarea>
+            <label for="licenseMachineCode">本机硬件机器码（复制发给作者即可换取离线激活码）</label>
+            <div class="license-code-row">
+              <code id="licenseMachineCode" class="license-code-value mono">正在读取本机指纹...</code>
+              <button id="copyMachineCodeBtn" type="button" class="btn btn-sm">一键复制</button>
+            </div>
           </div>
-          <div id="licenseFeedback" class="muted-note" style="min-height:18px;"></div>
-          <div class="dialog-actions" style="margin-top:4px;">
-            <button id="deactivateLicenseBtn" type="button" class="btn btn-danger-ghost hidden">清除当前授权</button>
-            <button type="button" class="btn" data-close-dialog="licenseDialog">取消</button>
-            <button id="activateLicenseSubmitBtn" type="submit" class="btn btn-primary">立即离线激活</button>
-          </div>
-        </form>
+
+          <form id="licenseActivateForm" class="stack-sm">
+            <div class="field-row" style="margin-bottom:0;">
+              <label for="licenseKeyInput">输入离线激活码</label>
+              <textarea id="licenseKeyInput" class="input mono" rows="3" placeholder="粘贴以 SS1. 开头的完整离线激活码..."></textarea>
+            </div>
+            <div id="licenseFeedback" class="muted-note" style="min-height:18px;"></div>
+          </form>
+        </div>
+      </div>
+      <div class="dialog-foot">
+        <div class="dialog-actions">
+          <button id="deactivateLicenseBtn" type="button" class="btn btn-danger-ghost hidden">清除当前授权</button>
+          <button type="button" class="btn" data-close-dialog="licenseDialog">取消</button>
+          <button id="activateLicenseSubmitBtn" type="submit" form="licenseActivateForm" class="btn btn-primary">立即离线激活</button>
+        </div>
       </div>
     </div>
   </dialog>

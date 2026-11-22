@@ -457,14 +457,36 @@ seedDemoBtn.addEventListener("click", async () => {
   });
 });
 
-// Settings, Strict Offline Lock & Multi-Tier Offline OCR Model Hub
+// Settings, Strict Offline Lock & Single-Source-of-Truth Offline OCR Model Hub
 let cachedHubCatalog = null;
+let activeOcrEngine = "rapidocr";
+let lastSingleLocalEngine = "rapidocr";
+const LOCAL_CARD_ENGINES = new Set([
+  "rapidocr",
+  "ppocrv5_mobile",
+  "ppocrv5_server",
+  "ollama_glm_ocr",
+  "ollama_qwen25vl_3b",
+  "deepseek_ocr2_local",
+]);
+
+function isLoopbackHttpUrl(urlStr) {
+  try {
+    const parsed = new URL(String(urlStr || "").trim());
+    return (
+      (parsed.protocol === "http:" || parsed.protocol === "https:") &&
+      ["127.0.0.1", "localhost", "::1"].includes(parsed.hostname.toLowerCase())
+    );
+  } catch {
+    return false;
+  }
+}
 
 function syncStrictOfflineUi(strictEnabled) {
   const badge = document.getElementById("strictOfflineBadge");
   const desc = document.getElementById("strictOfflineDesc");
   const apiNote = document.getElementById("strictOfflineApiNote");
-  const apiOpt = document.querySelector('#ocrEngineSelect option[value="deepseek_ocr2_api"]');
+  const apiModeBtn = document.querySelector('[data-ocr-route-mode="deepseek_ocr2_api"]');
   if (badge) {
     badge.textContent = strictEnabled ? "已锁定 · 禁止外传" : "已解锁 · 允许外部接口";
     badge.className = `pill ${strictEnabled ? "pill-ok" : "pill-warn"}`;
@@ -480,25 +502,79 @@ function syncStrictOfflineUi(strictEnabled) {
       : "外部接口已解锁：可使用云端 DeepSeek-OCR 2 / OpenAI 接口。";
     apiNote.style.color = strictEnabled ? "var(--ok)" : "var(--warn)";
   }
-  if (apiOpt) {
-    apiOpt.textContent = strictEnabled
-      ? "Vision API（涉密模式已锁定外网，仅可连 127.0.0.1）"
-      : "DeepSeek-OCR 2 视觉 API（云端 / 局域网）";
+  if (apiModeBtn) {
+    apiModeBtn.title = strictEnabled
+      ? "涉密模式已锁定外网，仅允许连接 127.0.0.1 / localhost 视觉接口"
+      : "切换为外部 / 局域网 Vision API 识别";
   }
 }
 
-function syncEngineSelectWithHub(catalog) {
-  if (!catalog || !Array.isArray(catalog.models)) return;
-  const engSel = document.getElementById("ocrEngineSelect");
-  if (!engSel) return;
-  const byEng = {};
-  for (const m of catalog.models) byEng[m.engine_value] = m;
+function syncOcrActiveIndicators() {
+  const hiddenInput = document.getElementById("ocrEngineValue");
+  if (hiddenInput) hiddenInput.value = activeOcrEngine;
 
-  Array.from(engSel.options).forEach((opt) => {
-    const m = byEng[opt.value];
-    if (!m || m.runner === "builtin_onnx") return;
-    opt.disabled = !m.installed;
+  const badge = document.getElementById("ocrCurrentEngineBadge");
+  const hint = document.getElementById("ocrModeHint");
+  const footerSummary = document.getElementById("ocrActiveFooterSummary");
+  const label = OCR_ENGINE_LABELS[activeOcrEngine] || activeOcrEngine;
+
+  if (badge) {
+    badge.textContent = label;
+    badge.className = `pill ${activeOcrEngine === "deepseek_ocr2_api" ? "pill-warn" : "pill-ok"}`;
+  }
+  if (hint) {
+    if (activeOcrEngine === "hybrid_smart") {
+      hint.textContent = "已启用离线智能混合：本地快速初扫，遇复杂多列表格或低分自动升级本地/已配视觉引擎";
+    } else if (activeOcrEngine === "deepseek_ocr2_api") {
+      hint.textContent = "已启用 Vision API 模式：请在下方「2. Vision API 设置」确认地址与密钥";
+    } else {
+      hint.textContent = "点击下方任意已就绪模型卡片即可切换并自动保存生效";
+    }
+  }
+  if (footerSummary) {
+    footerSummary.textContent = `当前生效：${label}（选模型自动保存）`;
+  }
+
+  const routeMode =
+    activeOcrEngine === "hybrid_smart"
+      ? "hybrid_smart"
+      : activeOcrEngine === "deepseek_ocr2_api"
+        ? "deepseek_ocr2_api"
+        : "single";
+
+  document.querySelectorAll("[data-ocr-route-mode]").forEach((btn) => {
+    const active = btn.dataset.ocrRouteMode === routeMode;
+    btn.classList.toggle("is-active", active);
+    btn.setAttribute("aria-pressed", String(active));
   });
+}
+
+async function persistOcrEngineSwitch(nextEngine, friendlyName) {
+  const prevEngine = activeOcrEngine;
+  const prevSingle = lastSingleLocalEngine;
+  activeOcrEngine = nextEngine;
+  if (LOCAL_CARD_ENGINES.has(nextEngine)) {
+    lastSingleLocalEngine = nextEngine;
+  }
+  syncOcrActiveIndicators();
+  if (cachedHubCatalog) renderOcrModelCards(cachedHubCatalog);
+
+  try {
+    const ocrCfg = { ...readOcrForm(), engine: nextEngine };
+    await apiJson("/api/settings", { method: "PUT", body: { ocr: ocrCfg, llm: readLlmForm() } });
+    updateActiveOcrPill(ocrCfg);
+    syncOcrActiveIndicators();
+    if (cachedHubCatalog) renderOcrModelCards(cachedHubCatalog);
+    showToast(`已切换并立即生效：${friendlyName || OCR_ENGINE_LABELS[nextEngine] || nextEngine}`, "ok");
+    return true;
+  } catch (err) {
+    activeOcrEngine = prevEngine;
+    lastSingleLocalEngine = prevSingle;
+    syncOcrActiveIndicators();
+    if (cachedHubCatalog) renderOcrModelCards(cachedHubCatalog);
+    showToast(err.message, "danger");
+    return false;
+  }
 }
 
 function renderOcrModelCards(catalog) {
@@ -513,7 +589,6 @@ function renderOcrModelCards(catalog) {
   const cardList = document.getElementById("ocrModelCardList");
   const forceChk = document.getElementById("addonForceChk");
   const mirrorChk = document.getElementById("addonMirrorChk");
-  const currentEngine = document.getElementById("ocrEngineSelect")?.value || "rapidocr";
 
   if (hwSummary) hwSummary.textContent = hw.summary || "";
   if (recBox) recBox.textContent = catalog.recommendation || "";
@@ -523,7 +598,7 @@ function renderOcrModelCards(catalog) {
     installedBadge.textContent = `已有 ${installedCnt} 个可用离线引擎`;
     installedBadge.className = "pill pill-ok";
   }
-  syncEngineSelectWithHub(catalog);
+  syncOcrActiveIndicators();
 
   if (!cardList) return;
   cardList.replaceChildren();
@@ -532,12 +607,19 @@ function renderOcrModelCards(catalog) {
 
   for (const m of models) {
     const isInstalled = Boolean(m.installed);
-    const isCurrent = currentEngine === m.engine_value;
+    const isCurrent = activeOcrEngine === m.engine_value;
+    const isSelectable = isInstalled && !isCurrent;
     const stateStr = String(m.state || (isInstalled ? "installed" : "not_installed"));
 
     let fitBadgeText = "硬件适配";
     let fitBadgeCls = "pill";
-    if (m.fit === "recommended") {
+    if (isCurrent) {
+      fitBadgeText = "✓ 当前生效";
+      fitBadgeCls = "pill pill-ok";
+    } else if (isInstalled) {
+      fitBadgeText = "已安装";
+      fitBadgeCls = "pill";
+    } else if (m.fit === "recommended") {
       fitBadgeText = "★ 最适合当前电脑";
       fitBadgeCls = "pill pill-ok";
     } else if (m.fit === "needs_runtime") {
@@ -585,30 +667,38 @@ function renderOcrModelCards(catalog) {
     );
 
     const actions = [];
+    let primaryActivateBtn = null;
     if (isInstalled) {
-      const useBtn = el("button", {
-        type: "button",
-        class: `btn btn-sm ${isCurrent ? "btn-soft" : "btn-primary"}`,
-        disabled: isCurrent,
-        text: isCurrent ? "当前正在使用 ✓" : "设为当前引擎",
-        onclick: () => {
-          const sel = document.getElementById("ocrEngineSelect");
-          if (sel) sel.value = m.engine_value;
-          renderOcrModelCards(catalog);
-          showToast(`已切换候选引擎为「${m.name}」，点击下方「保存全部设置」生效`, "ok");
-        },
-      });
-      actions.push(useBtn);
+      if (isCurrent) {
+        actions.push(el("span", { class: "pill pill-ok", text: "正在使用" }));
+      } else {
+        primaryActivateBtn = el("button", {
+          type: "button",
+          class: "btn btn-sm btn-primary",
+          text: "点击启用",
+          onclick: async (ev) => {
+            ev.stopPropagation();
+            await withButtonLoading(primaryActivateBtn, "切换中...", () =>
+              persistOcrEngineSwitch(m.engine_value, m.name)
+            );
+          },
+        });
+        actions.push(primaryActivateBtn);
+      }
       if (m.runner !== "builtin_onnx") {
         actions.push(
           el("button", {
             type: "button",
             class: "btn btn-sm btn-danger-ghost",
             text: "卸载释放空间",
-            onclick: async () => {
+            onclick: async (ev) => {
+              ev.stopPropagation();
               try {
                 const updated = await apiJson(`/api/ocr/models/${m.model_id}`, { method: "DELETE" });
                 renderOcrModelCards(updated);
+                if (activeOcrEngine === m.engine_value) {
+                  await persistOcrEngineSwitch("rapidocr", "RapidOCR 极速离线版");
+                }
                 showToast(`已卸载「${m.name}」`, "ok");
               } catch (err) {
                 showToast(err.message, "danger");
@@ -703,23 +793,46 @@ function renderOcrModelCards(catalog) {
     }
 
     const strengthTags = (m.strengths || []).map((s) => el("span", { class: "badge-mode", text: s }));
+    const cardCls = [
+      "ocr-model-card",
+      isCurrent ? "is-active-engine" : "",
+      isSelectable ? "is-selectable" : "",
+      !isCurrent && m.is_recommended ? "is-recommended" : "",
+    ]
+      .filter(Boolean)
+      .join(" ");
 
-    cardList.appendChild(
-      el("div", { class: `ocr-model-card${m.is_recommended ? " is-recommended" : ""}` }, [
+    const cardNode = el(
+      "div",
+      {
+        class: cardCls,
+        ...(isSelectable ? { title: `点击启用「${m.name}」` } : {}),
+        ...(isSelectable
+          ? {
+              onclick: (ev) => {
+                if (ev.target && ev.target.closest("button, a, input, select, label")) return;
+                if (primaryActivateBtn) primaryActivateBtn.click();
+              },
+            }
+          : {}),
+      },
+      [
         el("div", { class: "ocr-model-head" }, [
           el("div", { class: "toolbar-row", style: "gap:6px;" }, [
             el("strong", { style: "font-size:13px;", text: m.name }),
             el("span", { class: "badge-mode mono", text: sizeTxt }),
           ]),
-          el("span", { class: fitBadgeCls, text: isInstalled ? "已就绪 ✓" : fitBadgeText }),
+          el("span", { class: fitBadgeCls, text: fitBadgeText }),
         ]),
         el("div", { class: "muted-note", style: "font-size:12px;", text: m.summary }),
         el("div", { class: "toolbar-row", style: "gap:5px;" }, strengthTags),
         ...reasonNotes,
         ...progressSection,
         el("div", { class: "ocr-card-actions" }, actions),
-      ])
+      ]
     );
+
+    cardList.appendChild(cardNode);
   }
 }
 
@@ -743,8 +856,10 @@ document.getElementById("openSettingsBtn").addEventListener("click", async () =>
     if (strictChk) strictChk.checked = strict;
     syncStrictOfflineUi(strict);
 
-    const engSel = document.getElementById("ocrEngineSelect");
-    if (engSel) engSel.value = ocr.engine || "rapidocr";
+    activeOcrEngine = ocr.engine || "rapidocr";
+    if (LOCAL_CARD_ENGINES.has(activeOcrEngine)) {
+      lastSingleLocalEngine = activeOcrEngine;
+    }
     const ollamaInp = document.getElementById("ocrOllamaBaseUrlInput");
     if (ollamaInp) ollamaInp.value = ocr.ollama_base_url || "http://127.0.0.1:11434";
 
@@ -762,9 +877,12 @@ document.getElementById("openSettingsBtn").addEventListener("click", async () =>
     document.getElementById("llmApiKeyInput").value = llm.api_key || "";
     document.getElementById("llmLowConfInput").value = String(llm.low_conf_threshold ?? 0.85);
     document.getElementById("llmTestResult").textContent = "";
+    syncOcrActiveIndicators();
     renderOcrModelCards(catalog);
     updateActiveOcrPill(ocr);
     settingsDialog.showModal();
+    const dlgBody = settingsDialog.querySelector(".dialog-body");
+    if (dlgBody) dlgBody.scrollTop = 0;
   } catch (err) {
     showToast(err.message, "danger");
   }
@@ -786,13 +904,46 @@ document.getElementById("addonForceChk").addEventListener("change", () => {
   if (cachedHubCatalog) renderOcrModelCards(cachedHubCatalog);
 });
 
-document.getElementById("ocrEngineSelect").addEventListener("change", () => {
-  if (cachedHubCatalog) renderOcrModelCards(cachedHubCatalog);
+document.querySelectorAll("[data-ocr-route-mode]").forEach((btn) => {
+  btn.addEventListener("click", async () => {
+    const mode = btn.dataset.ocrRouteMode;
+    if (mode === "single") {
+      const installed = new Set(
+        (cachedHubCatalog?.models || []).filter((m) => m.installed).map((m) => m.engine_value)
+      );
+      const target =
+        lastSingleLocalEngine && (installed.size === 0 || installed.has(lastSingleLocalEngine))
+          ? lastSingleLocalEngine
+          : "rapidocr";
+      await persistOcrEngineSwitch(target, OCR_ENGINE_LABELS[target] || target);
+    } else if (mode === "hybrid_smart") {
+      await persistOcrEngineSwitch("hybrid_smart", "离线智能混合（快模型初扫 + 复杂/低分自动升视觉）");
+    } else if (mode === "deepseek_ocr2_api") {
+      const strictEnabled = document.getElementById("ocrStrictOfflineChk")?.checked !== false;
+      const apiUrl = (document.getElementById("ocrApiBaseUrlInput")?.value || "").trim();
+      if (!apiUrl || (strictEnabled && !isLoopbackHttpUrl(apiUrl))) {
+        const apiDetails = document.getElementById("ocrVisionApiDetails");
+        if (apiDetails) {
+          apiDetails.open = true;
+          apiDetails.scrollIntoView({ behavior: "smooth", block: "nearest" });
+        }
+        showToast(
+          !apiUrl
+            ? "请先在下方填写 Vision API 接口地址并保存"
+            : "当前已锁定涉密严格离线模式，外部云端接口需先关闭上方离线锁（或改填本机 127.0.0.1 地址）",
+          "warn"
+        );
+        return;
+      }
+      await persistOcrEngineSwitch("deepseek_ocr2_api", "Vision API");
+    }
+  });
 });
 
 function readOcrForm() {
+  const hiddenVal = document.getElementById("ocrEngineValue")?.value;
   return {
-    engine: document.getElementById("ocrEngineSelect").value,
+    engine: hiddenVal || activeOcrEngine || "rapidocr",
     strict_offline: document.getElementById("ocrStrictOfflineChk")?.checked !== false,
     ollama_base_url: (document.getElementById("ocrOllamaBaseUrlInput")?.value || "http://127.0.0.1:11434").trim(),
     api_base_url: document.getElementById("ocrApiBaseUrlInput").value.trim(),
@@ -866,6 +1017,7 @@ document.getElementById("settingsForm").addEventListener("submit", async (e) => 
       const ocrCfg = readOcrForm();
       await apiJson("/api/settings", { method: "PUT", body: { ocr: ocrCfg, llm: readLlmForm() } });
       updateActiveOcrPill(ocrCfg);
+      syncOcrActiveIndicators();
       await closeTopLayer(settingsDialog);
       showToast("OCR 引擎与大模型设置已保存", "ok");
     } catch (err) {
@@ -1039,7 +1191,17 @@ async function init() {
   await dataCleanCtrl.loadTemplates();
   await dataCleanCtrl.refreshPreview();
   await refreshStats();
-  apiJson("/api/settings").then((cfg) => updateActiveOcrPill(cfg.ocr)).catch(() => {});
+  apiJson("/api/settings")
+    .then((cfg) => {
+      const ocr = cfg.ocr || {};
+      activeOcrEngine = ocr.engine || "rapidocr";
+      if (LOCAL_CARD_ENGINES.has(activeOcrEngine)) {
+        lastSingleLocalEngine = activeOcrEngine;
+      }
+      syncOcrActiveIndicators();
+      updateActiveOcrPill(ocr);
+    })
+    .catch(() => {});
   await captureCtrl.loadRecentFromBook();
   connectSse();
 }

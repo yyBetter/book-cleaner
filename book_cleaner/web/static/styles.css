@@ -566,6 +566,8 @@ textarea {
 
 .tab-panel-scroll {
   overflow-y: auto;
+  overscroll-behavior: contain;
+  scroll-padding-top: 16px;
   padding: 20px 24px;
   gap: 16px;
 }
@@ -1383,22 +1385,49 @@ textarea {
   font-variant-numeric: tabular-nums;
 }
 
-/* Right Borderless Pure White Optical Inspector */
+/* Right Borderless Pure White Optical Inspector (Frozen Header & Footer) */
 .capture-inspector {
   background: var(--surface);
   border-left: 1px solid var(--border);
-  padding: 20px 22px;
+  padding: 0;
   display: flex;
   flex-direction: column;
-  gap: 14px;
-  overflow-y: auto;
+  overflow: hidden;
   min-height: 0;
 }
 
-.capture-inspector > .card-title {
+.capture-inspector-head {
+  flex: none;
+  padding: 14px 20px;
+  border-bottom: 1px solid var(--border);
+  background: var(--surface);
+  z-index: 2;
+}
+
+.capture-inspector-head > .card-title {
   margin: 0;
   font-size: 15px;
   font-weight: 600;
+}
+
+.capture-inspector-body {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  scroll-padding-top: 12px;
+  padding: 16px 20px;
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+}
+
+.capture-inspector-foot {
+  flex: none;
+  padding: 12px 20px;
+  border-top: 1px solid var(--border);
+  background: var(--surface);
+  z-index: 2;
 }
 
 /* Bare Telemetry Numbers (ZERO bordered sub-boxes!) */
@@ -1857,6 +1886,8 @@ textarea {
   flex: 1;
   min-height: 0;
   overflow-y: auto;
+  overscroll-behavior: contain;
+  scroll-padding-top: 12px;
   padding: 10px 12px;
   border-radius: 10px;
   border: 1px solid var(--border-strong);
@@ -1896,6 +1927,8 @@ textarea {
   width: 100%;
   max-height: 360px;
   overflow: auto;
+  overscroll-behavior: contain;
+  scroll-padding-top: 36px;
   margin: 6px 0 8px;
   border-radius: 8px;
   border: 1px solid var(--border);
@@ -1938,8 +1971,8 @@ textarea {
 .md-table thead th {
   position: sticky;
   inset-block-start: 0;
-  z-index: 1;
-  background: var(--surface-subtle);
+  z-index: 2;
+  background: var(--surface-rail);
   font-weight: 600;
 }
 
@@ -2041,6 +2074,8 @@ tr.md-sync-block:hover > td,
 
 .table-wrap {
   overflow: auto;
+  overscroll-behavior: contain;
+  scroll-padding-top: 40px;
 }
 
 .data-table {
@@ -2052,6 +2087,7 @@ tr.md-sync-block:hover > td,
 .data-table th {
   position: sticky;
   top: 0;
+  z-index: 2;
   background: var(--surface-rail);
   color: var(--muted);
   font-weight: 600;
@@ -2767,12 +2803,39 @@ tr.md-sync-block:hover > td,
 .dataclean-inspector {
   background: var(--surface);
   border-right: 1px solid var(--border);
-  padding: 18px 20px;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  min-height: 0;
+}
+
+.dataclean-inspector-head {
+  flex: none;
+  padding: 14px 20px;
+  border-bottom: 1px solid var(--border);
+  background: var(--surface);
+  z-index: 2;
+}
+
+.dataclean-inspector-body {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  scroll-padding-top: 12px;
+  padding: 16px 20px;
   display: flex;
   flex-direction: column;
   gap: 12px;
-  overflow-y: auto;
-  min-height: 0;
+}
+
+.dataclean-inspector-foot {
+  flex: none;
+  padding: 12px 20px;
+  border-top: 1px solid var(--border);
+  background: var(--surface);
+  z-index: 2;
 }
 
 .schema-head {
@@ -2819,6 +2882,8 @@ tr.md-sync-block:hover > td,
   flex: 1;
   min-height: 180px;
   overflow: auto;
+  overscroll-behavior: contain;
+  scroll-padding-top: 40px;
   background: var(--surface);
   border: 1px solid var(--border);
   border-radius: 14px;
@@ -3131,6 +3196,8 @@ tr.md-sync-block:hover > td,
   flex: 1;
   min-height: 0;
   overflow: auto;
+  overscroll-behavior: contain;
+  scroll-padding-top: 40px;
   padding: 16px 20px;
   display: flex;
   flex-direction: column;
@@ -3220,10 +3287,15 @@ tr.md-sync-block:hover > td,
 }
 
 .pack-field-head {
+  position: sticky;
+  top: 0;
+  z-index: 2;
+  background: var(--surface);
   font-size: 12px;
   font-weight: 600;
   color: var(--muted);
-  padding: 0 2px;
+  padding: 6px 2px;
+  border-bottom: 1px solid var(--border);
 }
 
 .pack-field-list {
@@ -3325,6 +3397,23 @@ tr.md-sync-block:hover > td,
   margin-top: 2px;
 }
 
+.export-history-card {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  min-height: 220px;
+  overflow: hidden;
+}
+
+.export-history-card .table-wrap {
+  flex: 1;
+  min-height: 160px;
+  max-height: 340px;
+  overflow: auto;
+  overscroll-behavior: contain;
+  scroll-padding-top: 40px;
+}
+
 /* ================= ANIMATED NATIVE TOP-LAYER DIALOGS ================= */
 dialog {
   margin: auto;
@@ -3342,6 +3431,10 @@ dialog {
   transition-duration: 210ms;
   transition-timing-function: cubic-bezier(0.2, 0.8, 0.2, 1);
   transition-behavior: allow-discrete;
+}
+
+dialog:modal {
+  overscroll-behavior: contain;
 }
 
 dialog.dialog-settings {
@@ -3368,6 +3461,8 @@ dialog.dialog-settings {
 }
 
 dialog::backdrop {
+  overflow: hidden;
+  overscroll-behavior: contain;
   background: rgba(24, 24, 27, 0);
   backdrop-filter: blur(0px);
   transition-property: background-color, backdrop-filter, display, overlay;
@@ -3392,6 +3487,13 @@ dialog::backdrop {
   }
 }
 
+.dialog-shell {
+  display: flex;
+  flex-direction: column;
+  max-height: calc(100dvh - 36px);
+  overflow: hidden;
+}
+
 .dialog-inner {
   padding: 20px 22px;
 }
@@ -3402,11 +3504,24 @@ dialog::backdrop {
 }
 
 .dialog-head {
+  flex: none;
   display: flex;
   align-items: center;
   justify-content: space-between;
   gap: 12px;
-  margin-bottom: 16px;
+  padding: 15px 22px;
+  margin-bottom: 0;
+  border-bottom: 1px solid var(--border);
+  background: var(--surface);
+  z-index: 2;
+}
+
+.dialog-head-title-wrap {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  min-width: 0;
+  flex-wrap: wrap;
 }
 
 .dialog-head h2 {
@@ -3415,11 +3530,48 @@ dialog::backdrop {
   font-weight: 600;
 }
 
+.dialog-body {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  scroll-padding-top: 12px;
+  padding: 16px 22px;
+}
+
+.dialog-body-flush {
+  padding: 0;
+  scroll-padding-top: 40px;
+}
+
+.dialog-foot {
+  flex: none;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  flex-wrap: wrap;
+  padding: 12px 22px;
+  border-top: 1px solid var(--border);
+  background: var(--surface);
+  z-index: 2;
+}
+
+.dialog-foot-status {
+  font-size: 12px;
+  min-width: 0;
+}
+
 .dialog-actions {
   display: flex;
   justify-content: flex-end;
   gap: 8px;
   margin-top: 16px;
+}
+
+.dialog-foot .dialog-actions {
+  margin-top: 0;
+  margin-left: auto;
 }
 
 .section-divider {
@@ -3864,6 +4016,12 @@ dialog::backdrop {
     border-right: none;
     border-top: 1px solid var(--border);
   }
+  .capture-inspector,
+  .dataclean-inspector,
+  .capture-inspector-body,
+  .dataclean-inspector-body {
+    overflow: visible;
+  }
   .review-gallery {
     flex-direction: row;
     overflow-x: auto;
@@ -3888,6 +4046,26 @@ dialog::backdrop {
 /* ================= STRICT OFFLINE OCR MODEL HUB ================= */
 dialog.dialog-settings {
   width: min(780px, calc(100vw - 28px));
+}
+
+.ocr-active-strip {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  flex-wrap: wrap;
+  padding: 10px 14px;
+  border-radius: 12px;
+  background: var(--surface-subtle);
+  border: 1px solid var(--border);
+}
+
+.ocr-active-meta {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  min-width: 0;
+  flex: 1;
 }
 
 .offline-lock-bar {
@@ -3934,6 +4112,22 @@ dialog.dialog-settings {
 .ocr-model-card.is-recommended {
   border-color: var(--ok-dot);
   box-shadow: 0 0 0 1px var(--ok-dot);
+}
+
+.ocr-model-card.is-active-engine {
+  border-color: var(--primary);
+  box-shadow: 0 0 0 1.5px var(--primary);
+  background: var(--surface-rail);
+}
+
+.ocr-model-card.is-selectable {
+  cursor: pointer;
+  transition: border-color 140ms ease, box-shadow 140ms ease, background-color 140ms ease;
+}
+
+.ocr-model-card.is-selectable:hover {
+  border-color: var(--border-strong);
+  background: var(--surface-rail);
 }
 
 .ocr-model-head {
