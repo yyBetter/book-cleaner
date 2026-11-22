@@ -87,7 +87,7 @@ function updateTabBadges(bookStats) {
   }
 }
 
-function switchTab(tabKey, { focusTab = false } = {}) {
+function switchTab(tabKey, { focusTab = false, skipRefresh = false } = {}) {
   state.activeTab = tabKey;
   tabBtns.forEach((b) => {
     const active = b.dataset.tab === tabKey;
@@ -102,13 +102,16 @@ function switchTab(tabKey, { focusTab = false } = {}) {
   document.querySelectorAll(".tab-panel").forEach((p) => {
     p.classList.toggle("is-active", p.id === `tab-${tabKey}`);
   });
-  if (tabKey === "review" && reviewCtrl) reviewCtrl.refreshPageList();
+  if (tabKey === "review" && reviewCtrl && !skipRefresh) reviewCtrl.refreshPageList();
   if (tabKey === "dataclean" && dataCleanCtrl) {
     dataCleanCtrl.loadTemplates().then(() => dataCleanCtrl.refreshPreview());
   }
   if ((tabKey === "pipeline" || tabKey === "export") && reviewCtrl) {
     refreshStats();
     reviewCtrl.refreshJobs();
+    if (tabKey === "pipeline") {
+      reviewCtrl.refreshPipelinePages();
+    }
     if (tabKey === "export" && dataCleanCtrl) {
       dataCleanCtrl.loadTemplates().then(() => dataCleanCtrl.refreshPreview());
     }
@@ -186,7 +189,11 @@ bookSelect.addEventListener("change", async () => {
   if ((state.activeTab === "dataclean" || state.activeTab === "export") && dataCleanCtrl) {
     await dataCleanCtrl.refreshPreview();
   }
-  if (state.activeTab === "pipeline" || state.activeTab === "export") await reviewCtrl.refreshJobs();
+  if (state.activeTab === "pipeline") {
+    await Promise.all([reviewCtrl.refreshJobs(), reviewCtrl.refreshPipelinePages()]);
+  } else if (state.activeTab === "export") {
+    await reviewCtrl.refreshJobs();
+  }
 });
 
 wireTwoStepAction(document.getElementById("deleteBookBtn"), "确认删整本？", async () => {
@@ -199,7 +206,11 @@ wireTwoStepAction(document.getElementById("deleteBookBtn"), "确认删整本？"
     if ((state.activeTab === "dataclean" || state.activeTab === "export") && dataCleanCtrl) {
       await dataCleanCtrl.refreshPreview();
     }
-    if (state.activeTab === "pipeline" || state.activeTab === "export") await reviewCtrl.refreshJobs();
+    if (state.activeTab === "pipeline") {
+      await Promise.all([reviewCtrl.refreshJobs(), reviewCtrl.refreshPipelinePages()]);
+    } else if (state.activeTab === "export") {
+      await reviewCtrl.refreshJobs();
+    }
     showToast("已删除书目并清理关联文件", "ok");
   } catch (err) {
     showToast(err.message, "danger");
@@ -533,6 +544,9 @@ function connectSse() {
       if (payload.type === "job_progress") {
         await reviewCtrl.refreshJobs();
       }
+      if (state.activeTab === "pipeline") {
+        await reviewCtrl.refreshPipelinePages();
+      }
       if (state.activeTab === "review") {
         const curId = reviewCtrl.getSelectedPageId();
         await reviewCtrl.refreshPageList(curId);
@@ -557,7 +571,8 @@ async function init() {
     },
     onJobsUpdated: () => reviewCtrl.refreshJobs(),
     onJumpToReview: async (pageId) => {
-      switchTab("review");
+      reviewCtrl.applyReviewFilter("ALL");
+      switchTab("review", { skipRefresh: true });
       await reviewCtrl.refreshPageList(pageId);
     },
   });
@@ -571,6 +586,14 @@ async function init() {
       refreshStats();
       refreshBooks(state.currentBookId);
       captureCtrl.loadRecentFromBook();
+    },
+    onJumpToTab: (tabKey) => {
+      switchTab(tabKey);
+    },
+    onJumpToReview: async (pageId, filterStatus = "ALL") => {
+      reviewCtrl.applyReviewFilter(filterStatus);
+      switchTab("review", { skipRefresh: true });
+      await reviewCtrl.refreshPageList(pageId);
     },
   });
 

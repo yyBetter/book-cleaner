@@ -19,6 +19,8 @@ export function createReviewAndPipelineController(state, callbacks) {
   let selectedPage = null;
   let multiSelectMode = false;
   const selectedPageIds = new Set();
+  let pipelineFilter = "ALL";
+  let nextStepAction = "capture";
 
   // Pipeline Monitor elements
   const kpiTotal = document.getElementById("kpiTotal");
@@ -27,6 +29,18 @@ export function createReviewAndPipelineController(state, callbacks) {
   const kpiOcr = document.getElementById("kpiOcr");
   const kpiReview = document.getElementById("kpiReview");
   const kpiFailed = document.getElementById("kpiFailed");
+  const pipelineHeroHeadline = document.getElementById("pipelineHeroHeadline");
+  const pipelineHeroSub = document.getElementById("pipelineHeroSub");
+  const pipelineNextStepBtn = document.getElementById("pipelineNextStepBtn");
+  const pipeStep1Meta = document.getElementById("pipeStep1Meta");
+  const pipeStep2Meta = document.getElementById("pipeStep2Meta");
+  const pipeStep3Meta = document.getElementById("pipeStep3Meta");
+  const pipelinePagesBody = document.getElementById("pipelinePagesBody");
+  const pipelineJobsFold = document.getElementById("pipelineJobsFold");
+  const pipelineJobsCount = document.getElementById("pipelineJobsCount");
+  const pausePipelineBtn = document.getElementById("pausePipelineBtn");
+  const resumePipelineBtn = document.getElementById("resumePipelineBtn");
+  const retryFailedBtn = document.getElementById("retryFailedBtn");
   const jobsTableBody = document.getElementById("jobsTableBody");
   const exportJobsBody = document.getElementById("exportJobsBody");
 
@@ -133,18 +147,280 @@ export function createReviewAndPipelineController(state, callbacks) {
 
     const denom = Math.max(1, b.total);
     const proc = b.pending_clean + b.pending_ocr + (b.pending_llm || 0);
+    const processed = b.completed + b.needs_review + b.failed;
+
     document.getElementById("barDone").style.width = `${(b.completed / denom) * 100}%`;
     document.getElementById("barProc").style.width = `${(proc / denom) * 100}%`;
     document.getElementById("barReview").style.width = `${(b.needs_review / denom) * 100}%`;
     document.getElementById("barFailed").style.width = `${(b.failed / denom) * 100}%`;
+
     document.getElementById("globalProgressNote").textContent =
-      b.total > 0 ? `完成度 ${((b.completed / denom) * 100).toFixed(1)}% (${b.completed}/${b.total})` : "尚无页面";
+      b.total > 0
+        ? proc === 0
+          ? `自动加工进度 100%（${b.total}/${b.total} 页全部跑完）`
+          : `正在自动加工：已跑完 ${processed}/${b.total} 页（${proc} 页排队中）`
+        : "尚无页面";
+
+    if (pipeStep1Meta) pipeStep1Meta.textContent = b.total > 0 ? "· 已安全落盘" : "· 等待入库";
+    if (pipeStep2Meta) pipeStep2Meta.textContent = `· 已洗净 ${Math.max(0, b.total - b.pending_clean)} 页`;
+    if (pipeStep3Meta) pipeStep3Meta.textContent = `· 已出字 ${processed} 页`;
+
+    const isPaused = Boolean(stats && stats.paused);
+    if (pausePipelineBtn) pausePipelineBtn.classList.toggle("hidden", isPaused);
+    if (resumePipelineBtn) resumePipelineBtn.classList.toggle("hidden", !isPaused);
+    if (retryFailedBtn) retryFailedBtn.classList.toggle("hidden", b.failed === 0);
+
+    if (pipelineHeroHeadline && pipelineHeroSub && pipelineNextStepBtn) {
+      if (b.total === 0) {
+        pipelineHeroHeadline.textContent = "等待采集照片…";
+        pipelineHeroSub.textContent = "在「1 拍照」拍入或拖入纸张图片后，后台会自动完成切边、去阴影、离线识字与清晰度把关。";
+        pipelineNextStepBtn.textContent = "去「1 拍照」开始采集 →";
+        nextStepAction = "capture";
+      } else if (isPaused) {
+        pipelineHeroHeadline.textContent = `后台流水线已暂停（共 ${b.total} 页，还有 ${proc} 页待加工）`;
+        pipelineHeroSub.textContent = "点击右侧「恢复运行」后将继续自动图像清洗和离线文字识别。";
+        pipelineNextStepBtn.textContent = "去「3 复核」查看已加工页 →";
+        nextStepAction = "review_all";
+      } else if (proc > 0) {
+        pipelineHeroHeadline.textContent = `后台正在自动清洗与识字（剩余 ${proc} 页排队）…`;
+        pipelineHeroSub.textContent = `目前已完成 ${processed}/${b.total} 页，您可以继续拍照，不必等待。`;
+        pipelineNextStepBtn.textContent = "去「3 复核」先看已出结果 →";
+        nextStepAction = "review_all";
+      } else if (b.failed > 0) {
+        pipelineHeroHeadline.textContent = `后台加工已跑完（共 ${b.total} 页，${b.failed} 页失败待处理）`;
+        pipelineHeroSub.textContent = "可点右侧「重试失败页」重新识别，或在下方直接删除无法使用的废片。";
+        pipelineNextStepBtn.textContent = "去「3 复核」清理异常页 →";
+        nextStepAction = "review_needs";
+      } else if (b.needs_review > 0) {
+        pipelineHeroHeadline.textContent = `后台已全部自动加工完毕（${b.total}/${b.total} 页）`;
+        pipelineHeroSub.textContent = `${b.completed} 页直接合格；系统发现 ${b.needs_review} 页疑似模糊、连拍重复或文字把握度偏低（已标黄），请复核确认或删废片。`;
+        pipelineNextStepBtn.textContent = `去「3 复核」清理 ${b.needs_review} 页异常 →`;
+        nextStepAction = "review_needs";
+      } else {
+        pipelineHeroHeadline.textContent = `全部 ${b.total} 页均已清洗并绿灯合格！`;
+        pipelineHeroSub.textContent = "可以前往「4 表格」按模板自动分拣对表，并导出标准 Excel 或 CatBoost 宽表。";
+        pipelineNextStepBtn.textContent = "去「4 表格」分拣并导出 →";
+        nextStepAction = "dataclean";
+      }
+    }
+  }
+
+  function formatCleanActions(page) {
+    const st = page.status || "";
+    if (st === "CAPTURED" || st === "STAGING") {
+      return [{ label: "排队等待清洗…", cls: "pipe-tag" }];
+    }
+    if (st === "CLEANING") {
+      return [{ label: "正在切边展平…", cls: "pipe-tag" }];
+    }
+    const m = page.clean_meta || {};
+    const chips = [];
+    if (m.cropped) chips.push({ label: "已切边", cls: "pipe-tag" });
+    const deg = Number(m.deskew_deg || 0);
+    if (Math.abs(deg) >= 0.3) chips.push({ label: `纠偏 ${deg.toFixed(1)}°`, cls: "pipe-tag" });
+    const dewarp = Number(m.dewarp_px || 0);
+    if (dewarp >= 1.5) chips.push({ label: `展平 ${dewarp.toFixed(1)}px`, cls: "pipe-tag" });
+    const fingers = Number(m.fingers_removed || 0);
+    if (fingers > 0) chips.push({ label: `擦手指 ×${fingers}`, cls: "pipe-tag" });
+    if (Number(m.bg_uniformity_before || 0) - Number(m.bg_uniformity_after || 0) >= 2.0) {
+      chips.push({ label: "去阴影漂白", cls: "pipe-tag" });
+    }
+    const mode = (m.profile && m.profile.enhance_mode) || "";
+    const modeMap = {
+      clean_color: "洁净彩页",
+      grayscale_crisp: "锐利灰度",
+      bw_sauvola: "黑白二值",
+    };
+    if (modeMap[mode]) chips.push({ label: modeMap[mode], cls: "pipe-tag" });
+    if (!chips.length) chips.push({ label: "基础光学校准", cls: "pipe-tag" });
+    return chips;
+  }
+
+  function formatOcrSummary(page) {
+    const st = page.status || "";
+    if (st === "CAPTURED" || st === "STAGING" || st === "CLEANING" || st === "CLEANED") {
+      return { badge: "等待识别…", cls: "pipe-tag", note: "清洗完自动排队" };
+    }
+    if (st === "OCR_RUNNING") {
+      return { badge: "正在离线识字…", cls: "pipe-tag", note: "RapidOCR 运行中" };
+    }
+    if (st === "FAILED") {
+      return { badge: "识别中断", cls: "pipe-tag is-danger", note: page.error_msg || "可点重试" };
+    }
+    const txt = String(page.clean_text || page.ocr_text || "").trim();
+    const chars = txt.length;
+    const confPct = Number(page.ocr_confidence || 0) * 100;
+    if (chars === 0) {
+      return { badge: "未识出文字", cls: "pipe-tag is-warn", note: "画面过糊或空白页" };
+    }
+    return {
+      badge: `识出 ${chars} 字`,
+      cls: confPct >= 82 ? "pipe-tag is-ok" : "pipe-tag is-warn",
+      note: `把握度 ${confPct.toFixed(1)}%`,
+    };
+  }
+
+  function setPipelineFilter(nextFilter) {
+    pipelineFilter = nextFilter || "ALL";
+    document.querySelectorAll("[data-pipe-filter]").forEach((b) => {
+      const act = b.dataset.pipeFilter === pipelineFilter;
+      b.classList.toggle("is-active", act);
+      b.classList.toggle("btn-primary", act);
+    });
+    document.querySelectorAll("[data-pipe-step-filter]").forEach((step) => {
+      step.classList.toggle("is-active", step.dataset.pipeStepFilter === pipelineFilter);
+    });
+  }
+
+  async function refreshPipelinePages() {
+    if (!state.currentBookId || !pipelinePagesBody) return;
+    const qs = new URLSearchParams({
+      status: pipelineFilter,
+      order: "desc",
+      limit: "50",
+      offset: "0",
+    });
+    const data = await apiJson(`/api/books/${state.currentBookId}/pages?${qs.toString()}`);
+    const items = data.items || [];
+    pipelinePagesBody.replaceChildren();
+
+    if (!items.length) {
+      pipelinePagesBody.appendChild(
+        el("tr", {}, [
+          el("td", {
+            colspan: "5",
+            class: "empty-state",
+            text:
+              pipelineFilter === "ALL"
+                ? "本书还没有拍照页面，请先前往「1 拍照」拍摄或拖入图片。"
+                : "当前筛选条件下暂无页面，点左上方「全部」查看整册详情。",
+          }),
+        ])
+      );
+      return;
+    }
+
+    for (const p of items) {
+      const rawTxt = String(p.clean_text || p.ocr_text || "").replace(/\s+/g, " ").trim();
+      const snippet = rawTxt ? rawTxt.slice(0, 26) : "（未识出文字或待处理）";
+
+      // Col 1: Photo + #seq + snippet
+      const colPhoto = el("td", {}, [
+        el("div", { class: "pipe-page-cell" }, [
+          el("img", {
+            class: "pipe-thumb",
+            src: `/api/pages/${p.id}/image/thumb?t=${encodeURIComponent(p.updated_at || "")}`,
+            alt: `第 ${p.seq_no} 页`,
+            loading: "lazy",
+          }),
+          el("div", { class: "pipe-page-text" }, [
+            el("span", {
+              class: "pipe-page-title",
+              text: `#${p.seq_no}${p.spread_side !== "S" ? p.spread_side : ""} · ${translateStatus(p.status)}`,
+            }),
+            el("span", { class: "pipe-page-snippet", title: rawTxt || snippet, text: snippet }),
+          ]),
+        ]),
+      ]);
+
+      // Col 2: Capture QA check
+      const qaNodes = [
+        el("span", { class: "pipe-tag", text: `清晰度 ${Math.round(Number(p.blur_score || 0))}` }),
+      ];
+      const flags = Array.isArray(p.qa_flags) ? [...p.qa_flags] : [];
+      if (p.is_duplicate && !flags.includes("duplicate_page")) flags.push("duplicate_page");
+      if (flags.length) {
+        for (const f of flags.slice(0, 2)) {
+          qaNodes.push(el("span", { class: "pipe-tag is-warn", text: translateFlag(f) }));
+        }
+      } else {
+        qaNodes.push(el("span", { class: "pipe-tag is-ok", text: "清晰无重拍" }));
+      }
+      const colQa = el("td", {}, [el("div", { class: "pipe-tags" }, qaNodes)]);
+
+      // Col 3: Cleaning operations
+      const cleanChips = formatCleanActions(p).map((c) => el("span", { class: c.cls, text: c.label }));
+      const colClean = el("td", {}, [el("div", { class: "pipe-tags" }, cleanChips)]);
+
+      // Col 4: OCR text count + confidence
+      const ocrInfo = formatOcrSummary(p);
+      const colOcr = el("td", {}, [
+        el("div", { class: "pipe-tags" }, [
+          el("span", { class: ocrInfo.cls, text: ocrInfo.badge }),
+          el("span", { class: "muted-note", style: "font-size:12px;", text: ocrInfo.note }),
+        ]),
+      ]);
+
+      // Col 5: Conclusion + Quick actions
+      let statusLabel = "加工中…";
+      let statusCls = "pipe-tag";
+      if (p.status === "READY" || p.status === "APPROVED" || p.status === "LLM_DONE") {
+        statusLabel = p.status === "APPROVED" ? "✓ 已通过" : "✓ 已合格";
+        statusCls = "pipe-tag is-ok";
+      } else if (p.status === "NEEDS_REVIEW") {
+        statusLabel = "⚠ 标黄待复核";
+        statusCls = "pipe-tag is-warn";
+      } else if (p.status === "FAILED") {
+        statusLabel = "✕ 失败";
+        statusCls = "pipe-tag is-danger";
+      }
+
+      const jumpBtn = el("button", {
+        type: "button",
+        class: "btn btn-compact",
+        text: "看前后对比",
+        onclick: () => {
+          if (callbacks.onJumpToReview) callbacks.onJumpToReview(p.id, "ALL");
+        },
+      });
+      const delBtn = el("button", {
+        type: "button",
+        class: "btn btn-compact btn-danger-ghost",
+        text: "删废片",
+      });
+      wireTwoStepAction(delBtn, "确认删？", async () => {
+        try {
+          await apiJson(`/api/pages/${p.id}`, { method: "DELETE" });
+          await refreshPipelinePages();
+          if (callbacks.onPagesChanged) callbacks.onPagesChanged();
+          showToast(`已移除第 #${p.seq_no} 页`, "ok");
+        } catch (err) {
+          showToast(err.message, "danger");
+        }
+      });
+
+      const colActions = el("td", {}, [
+        el("div", { class: "pipe-actions" }, [
+          el("span", { class: statusCls, text: statusLabel }),
+          jumpBtn,
+          delBtn,
+        ]),
+      ]);
+
+      pipelinePagesBody.appendChild(
+        el("tr", { class: p.status === "NEEDS_REVIEW" ? "row-warn" : "" }, [
+          colPhoto,
+          colQa,
+          colClean,
+          colOcr,
+          colActions,
+        ])
+      );
+    }
   }
 
   async function refreshJobs() {
     const qs = state.currentBookId ? `?book_id=${state.currentBookId}&limit=30` : "?limit=30";
     const data = await apiJson(`/api/jobs${qs}`);
     const items = data.items || [];
+
+    if (pipelineJobsCount) {
+      pipelineJobsCount.textContent = `${items.length} 条`;
+    }
+    if (pipelineJobsFold) {
+      const hasRunning = items.some((j) => j.status === "RUNNING" || j.status === "PENDING");
+      if (hasRunning) pipelineJobsFold.open = true;
+    }
 
     jobsTableBody.replaceChildren();
     exportJobsBody.replaceChildren();
@@ -570,24 +846,76 @@ export function createReviewAndPipelineController(state, callbacks) {
     });
   });
 
-  // Pipeline controls
-  document.getElementById("pausePipelineBtn").addEventListener("click", async () => {
-    await apiJson("/api/pipeline/pause", { method: "POST" });
-    callbacks.onStatsNeeded();
-  });
-  document.getElementById("resumePipelineBtn").addEventListener("click", async () => {
-    await apiJson("/api/pipeline/resume", { method: "POST" });
-    callbacks.onStatsNeeded();
-  });
-  const retryFailedBtn = document.getElementById("retryFailedBtn");
-  retryFailedBtn.addEventListener("click", async () => {
-    await withButtonLoading(retryFailedBtn, "重试中...", async () => {
-      const qs = state.currentBookId ? `?book_id=${state.currentBookId}` : "";
-      const res = await apiJson(`/api/pipeline/retry-failed${qs}`, { method: "POST" });
-      showToast(`已重新入队 ${res.retried} 个失败页面`, "ok");
+  // Pipeline controls & feed filters
+  if (pausePipelineBtn) {
+    pausePipelineBtn.addEventListener("click", async () => {
+      await apiJson("/api/pipeline/pause", { method: "POST" });
       callbacks.onStatsNeeded();
     });
+  }
+  if (resumePipelineBtn) {
+    resumePipelineBtn.addEventListener("click", async () => {
+      await apiJson("/api/pipeline/resume", { method: "POST" });
+      callbacks.onStatsNeeded();
+    });
+  }
+  if (retryFailedBtn) {
+    retryFailedBtn.addEventListener("click", async () => {
+      await withButtonLoading(retryFailedBtn, "重试中...", async () => {
+        const qs = state.currentBookId ? `?book_id=${state.currentBookId}` : "";
+        const res = await apiJson(`/api/pipeline/retry-failed${qs}`, { method: "POST" });
+        showToast(`已重新入队 ${res.retried} 个失败页面`, "ok");
+        callbacks.onStatsNeeded();
+        refreshPipelinePages();
+      });
+    });
+  }
+
+  document.querySelectorAll("[data-pipe-filter]").forEach((btn) => {
+    btn.addEventListener("click", () => {
+      setPipelineFilter(btn.dataset.pipeFilter);
+      refreshPipelinePages();
+    });
   });
+
+  document.querySelectorAll("[data-pipe-step-filter]").forEach((step) => {
+    step.addEventListener("click", () => {
+      setPipelineFilter(step.dataset.pipeStepFilter);
+      refreshPipelinePages();
+    });
+  });
+
+  const refreshPipelinePagesBtn = document.getElementById("refreshPipelinePagesBtn");
+  if (refreshPipelinePagesBtn) {
+    refreshPipelinePagesBtn.addEventListener("click", () => {
+      refreshPipelinePages();
+      callbacks.onStatsNeeded();
+    });
+  }
+
+  if (pipelineNextStepBtn) {
+    pipelineNextStepBtn.addEventListener("click", () => {
+      if (nextStepAction === "capture" && callbacks.onJumpToTab) {
+        callbacks.onJumpToTab("capture");
+      } else if (nextStepAction === "dataclean" && callbacks.onJumpToTab) {
+        callbacks.onJumpToTab("dataclean");
+      } else if (nextStepAction === "review_needs" && callbacks.onJumpToReview) {
+        callbacks.onJumpToReview(null, "NEEDS_REVIEW");
+      } else if (callbacks.onJumpToReview) {
+        callbacks.onJumpToReview(null, "ALL");
+      }
+    });
+  }
+
+  function applyReviewFilter(status) {
+    currentFilterStatus = status || "ALL";
+    currentOffset = 0;
+    document.querySelectorAll("[data-filter]").forEach((b) => {
+      const act = b.dataset.filter === currentFilterStatus;
+      b.classList.toggle("is-active", act);
+      b.classList.toggle("btn-primary", act);
+    });
+  }
 
   // Export triggers
   document.querySelectorAll(".export-trigger").forEach((btn) => {
@@ -624,6 +952,8 @@ export function createReviewAndPipelineController(state, callbacks) {
   return {
     renderStats,
     refreshJobs,
+    refreshPipelinePages,
+    applyReviewFilter,
     refreshPageList,
     selectPage,
     approveCurrent,

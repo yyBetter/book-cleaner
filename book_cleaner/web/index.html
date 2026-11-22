@@ -377,29 +377,83 @@
         </div>
       </section>
 
-      <!-- TAB 2: PIPELINE MONITOR -->
+      <!-- TAB 2: PIPELINE MONITOR (VISUAL EXPLAINER + LIVE PER-PAGE FEED) -->
       <section id="tab-pipeline" class="tab-panel tab-panel-scroll scroller" role="tabpanel" aria-labelledby="tabBtn-pipeline">
-        <div class="kpi-grid">
-          <div class="kpi-card"><div class="kpi-label">本书总页数</div><div id="kpiTotal" class="kpi-val">0</div></div>
-          <div class="kpi-card"><div class="kpi-label">已完成 / 已通过</div><div id="kpiCompleted" class="kpi-val kpi-val-ok">0</div></div>
-          <div class="kpi-card"><div class="kpi-label">待图像清洗</div><div id="kpiClean" class="kpi-val">0</div></div>
-          <div class="kpi-card"><div class="kpi-label">待离线 OCR</div><div id="kpiOcr" class="kpi-val">0</div></div>
-          <div class="kpi-card"><div class="kpi-label">需人工复核</div><div id="kpiReview" class="kpi-val kpi-val-warn">0</div></div>
-          <div class="kpi-card"><div class="kpi-label">失败待重试</div><div id="kpiFailed" class="kpi-val kpi-val-danger">0</div></div>
+        <!-- 1. Plain-Chinese Conclusion & Next-Step Hero -->
+        <div class="pipeline-hero">
+          <div class="pipeline-hero-text">
+            <h2 id="pipelineHeroHeadline" class="pipeline-hero-title">等待采集照片…</h2>
+            <div id="pipelineHeroSub" class="pipeline-hero-sub">拍完或拖入纸质页后，系统会在后台自动完成切边清洗、离线识字和清晰度把关。</div>
+          </div>
+          <div class="pipeline-hero-actions">
+            <button id="pipelineNextStepBtn" type="button" class="btn btn-primary">去「1 拍照」开始采集 →</button>
+            <button id="retryFailedBtn" type="button" class="btn btn-sm btn-soft hidden">重试失败页</button>
+            <button id="pausePipelineBtn" type="button" class="btn btn-sm">暂停后台</button>
+            <button id="resumePipelineBtn" type="button" class="btn btn-sm hidden">恢复运行</button>
+          </div>
         </div>
 
-        <div class="card">
+        <!-- 2. 4-Step Visual Flow Explaining What Happens After Shutter -->
+        <div class="card pipeline-flow-card">
           <div class="toolbar-between">
-            <div>
-              <h2 class="card-title" style="margin:0;display:inline-flex;">流水线总进度与引擎调度</h2>
-              <span id="globalProgressNote" class="muted-note" style="margin-left:8px;"></span>
-            </div>
-            <div class="toolbar-row">
-              <button id="pausePipelineBtn" type="button" class="btn btn-sm">暂停后台任务</button>
-              <button id="resumePipelineBtn" type="button" class="btn btn-sm btn-primary">恢复运行</button>
-              <button id="retryFailedBtn" type="button" class="btn btn-sm btn-soft">一键重试失败页</button>
-            </div>
+            <h3 class="card-title" style="margin:0;">拍完照片后，后台自动帮您做这 4 件事</h3>
+            <span id="globalProgressNote" class="muted-note">尚无页面</span>
           </div>
+
+          <div class="pipeline-steps">
+            <button type="button" class="pipeline-step is-active" data-pipe-step-filter="ALL">
+              <div class="pipeline-step-head">
+                <span class="pipeline-step-num">1</span>
+                <span class="pipeline-step-title">拍照入库与初检</span>
+              </div>
+              <div class="pipeline-step-desc">测清晰度与亮度，拦截连拍重复页</div>
+              <div class="pipeline-step-stat">
+                <strong id="kpiTotal" class="pipeline-step-val">0</strong>
+                <span class="muted-note">页</span>
+                <span id="pipeStep1Meta" class="muted-note">· 等待入库</span>
+              </div>
+            </button>
+
+            <button type="button" class="pipeline-step" data-pipe-step-filter="PROCESSING">
+              <div class="pipeline-step-head">
+                <span class="pipeline-step-num">2</span>
+                <span class="pipeline-step-title">图像美容清洗</span>
+              </div>
+              <div class="pipeline-step-desc">切黑边、展平弯页、去阴影漂白、擦手指</div>
+              <div class="pipeline-step-stat">
+                <strong id="kpiClean" class="pipeline-step-val">0</strong>
+                <span class="muted-note">排队</span>
+                <span id="pipeStep2Meta" class="muted-note">· 已洗净 0 页</span>
+              </div>
+            </button>
+
+            <button type="button" class="pipeline-step" data-pipe-step-filter="PROCESSING">
+              <div class="pipeline-step-head">
+                <span class="pipeline-step-num">3</span>
+                <span class="pipeline-step-title">离线文字识别</span>
+              </div>
+              <div class="pipeline-step-desc">免费离线提取文字与表格，计算把握度</div>
+              <div class="pipeline-step-stat">
+                <strong id="kpiOcr" class="pipeline-step-val">0</strong>
+                <span class="muted-note">排队</span>
+                <span id="pipeStep3Meta" class="muted-note">· 已出字 0 页</span>
+              </div>
+            </button>
+
+            <button type="button" class="pipeline-step" data-pipe-step-filter="NEEDS_REVIEW">
+              <div class="pipeline-step-head">
+                <span class="pipeline-step-num">4</span>
+                <span class="pipeline-step-title">质检分流结论</span>
+              </div>
+              <div class="pipeline-step-desc">高把握直通；模糊/重复标黄等您挑</div>
+              <div class="pipeline-step-split">
+                <span class="pipe-split-ok">合格 <strong id="kpiCompleted">0</strong></span>
+                <span class="pipe-split-warn">待复核 <strong id="kpiReview">0</strong></span>
+                <span class="pipe-split-fail">失败 <strong id="kpiFailed">0</strong></span>
+              </div>
+            </button>
+          </div>
+
           <div class="stacked-bar" aria-label="页面处理状态分布">
             <div id="barDone" class="seg-done" style="width:0%"></div>
             <div id="barProc" class="seg-proc" style="width:0%"></div>
@@ -407,16 +461,55 @@
             <div id="barFailed" class="seg-fail" style="width:0%"></div>
           </div>
           <div class="legend-row">
-            <span class="legend-item"><span class="dot" style="color:var(--ok);"></span>已完成 / 已通过</span>
-            <span class="legend-item"><span class="dot" style="color:var(--accent);"></span>清洗 / OCR 排队中</span>
-            <span class="legend-item"><span class="dot" style="color:var(--warn);"></span>需人工复核</span>
+            <span class="legend-item"><span class="dot" style="color:var(--ok-dot);"></span>直接合格</span>
+            <span class="legend-item"><span class="dot" style="color:var(--primary);opacity:0.7;"></span>正在清洗 / 识别中</span>
+            <span class="legend-item"><span class="dot" style="color:var(--warn);"></span>已跑完 · 标黄待复核</span>
             <span class="legend-item"><span class="dot" style="color:var(--danger);"></span>处理失败</span>
           </div>
         </div>
 
-        <div class="card" style="flex:1;display:flex;flex-direction:column;min-height:240px;">
-          <h2 class="card-title">批量导入与导出后台任务队列</h2>
-          <div class="table-wrap" style="flex:1;">
+        <!-- 3. Centerpiece: Per-Page Processing Feed -->
+        <div class="card pipeline-feed-card">
+          <div class="toolbar-between" style="margin-bottom:10px;">
+            <div class="toolbar-row">
+              <h3 class="card-title" style="margin:0;">每张照片的后台加工实况</h3>
+              <span class="muted-note">刚拍的在最上面</span>
+            </div>
+            <div class="toolbar-row">
+              <div class="filter-pills">
+                <button class="btn btn-sm btn-primary is-active" data-pipe-filter="ALL" type="button">全部</button>
+                <button class="btn btn-sm" data-pipe-filter="PROCESSING" type="button">正在加工</button>
+                <button class="btn btn-sm" data-pipe-filter="NEEDS_REVIEW" type="button">标黄待复核</button>
+                <button class="btn btn-sm" data-pipe-filter="COMPLETED" type="button">已合格</button>
+                <button class="btn btn-sm" data-pipe-filter="FAILED" type="button">失败</button>
+              </div>
+              <button id="refreshPipelinePagesBtn" type="button" class="btn btn-sm">刷新</button>
+            </div>
+          </div>
+
+          <div class="pipeline-feed-wrap scroller">
+            <table class="data-table">
+              <thead>
+                <tr>
+                  <th style="min-width:210px;">照片与摘要</th>
+                  <th style="min-width:130px;">① 拍照初检</th>
+                  <th style="min-width:185px;">② 图像清洗做了啥</th>
+                  <th style="min-width:165px;">③ 离线文字识别 (OCR)</th>
+                  <th style="min-width:190px;">④ 结论与快捷操作</th>
+                </tr>
+              </thead>
+              <tbody id="pipelinePagesBody"></tbody>
+            </table>
+          </div>
+        </div>
+
+        <!-- 4. Collapsible Secondary Batch Import / Export Jobs Drawer -->
+        <details id="pipelineJobsFold" class="pipeline-jobs-fold">
+          <summary>
+            <span>批量目录导入与文件导出后台任务记录</span>
+            <span id="pipelineJobsCount" class="pill">0 条</span>
+          </summary>
+          <div class="table-wrap" style="margin-top:10px;">
             <table class="data-table">
               <thead>
                 <tr>
@@ -431,7 +524,7 @@
               <tbody id="jobsTableBody"></tbody>
             </table>
           </div>
-        </div>
+        </details>
       </section>
 
       <!-- TAB 3: PRO LIGHTBOX REVIEW & COMPARISON -->
