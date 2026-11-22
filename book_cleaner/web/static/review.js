@@ -12,6 +12,86 @@ import {
   withButtonLoading,
 } from "/static/api.js";
 
+const copyTimers = new WeakMap();
+let lastCopyMessage = "";
+
+function legacyCopy(text) {
+  const field = Object.assign(document.createElement("textarea"), { value: text });
+  field.setAttribute("readonly", "");
+  field.style.cssText = "position:fixed;inset-block-start:0;opacity:0";
+  document.body.append(field);
+  field.select();
+  try {
+    return document.execCommand("copy");
+  } finally {
+    field.remove();
+  }
+}
+
+function reportCopy(button, ok) {
+  const tip = button.nextElementSibling;
+  clearTimeout(copyTimers.get(button));
+  button.removeAttribute("data-copied");
+  button.removeAttribute("data-failed");
+  let message = ok ? "已复制" : "复制失败";
+  if (message === lastCopyMessage) message += "\u00A0";
+  lastCopyMessage = message;
+  if (tip) tip.textContent = "";
+  void button.offsetWidth;
+  button.setAttribute(ok ? "data-copied" : "data-failed", "");
+  if (tip) requestAnimationFrame(() => (tip.textContent = message));
+  copyTimers.set(
+    button,
+    setTimeout(() => {
+      button.removeAttribute("data-copied");
+      button.removeAttribute("data-failed");
+      if (tip) tip.textContent = "";
+    }, 2000)
+  );
+}
+
+async function copyFromTarget(button, target) {
+  if (!button || !target) return;
+  const text = target.matches("input, textarea") ? target.value : target.innerText.trim();
+  if (!text) {
+    reportCopy(button, false);
+    return;
+  }
+  try {
+    if (navigator.clipboard && navigator.clipboard.writeText) {
+      await navigator.clipboard.writeText(text);
+    } else if (!legacyCopy(text)) {
+      throw new Error("Copy failed");
+    }
+    reportCopy(button, true);
+  } catch {
+    try {
+      reportCopy(button, legacyCopy(text));
+    } catch {
+      reportCopy(button, false);
+    }
+  }
+}
+
+if ("CommandEvent" in window) {
+  document.addEventListener(
+    "command",
+    (event) => {
+      if (event.command === "--copy") {
+        copyFromTarget(event.source, event.target);
+      }
+    },
+    { capture: true }
+  );
+} else {
+  document.addEventListener("click", (event) => {
+    const button = event.target.closest('button[command="--copy"]');
+    if (!button) return;
+    const target = document.getElementById(button.getAttribute("commandfor") || "");
+    if (target) copyFromTarget(button, target);
+  });
+}
+
 export function createReviewAndPipelineController(state, callbacks) {
   let currentFilterStatus = "ALL";
   let currentOffset = 0;
@@ -25,6 +105,8 @@ export function createReviewAndPipelineController(state, callbacks) {
   let pipelineItems = [];
   let selectedPipelinePageId = null;
   let xrayOcrViewMode = "render"; // "render" | "source"
+  let xrayDiagOpen = false;
+  let xrayOcrExpanded = false;
   let reviewTextViewMode = "edit"; // "edit" | "preview"
   let nextStepAction = "capture";
 
@@ -42,7 +124,9 @@ export function createReviewAndPipelineController(state, callbacks) {
   const pipeStep2Meta = document.getElementById("pipeStep2Meta");
   const pipeStep3Meta = document.getElementById("pipeStep3Meta");
   const pipelinePagesList = document.getElementById("pipelinePagesList");
+  const pipeXrayCol = document.getElementById("pipeXrayCol");
   const pipeXrayTitle = document.getElementById("pipeXrayTitle");
+  const pipeXrayVerdictPill = document.getElementById("pipeXrayVerdictPill");
   const pipeXrayApproveBtn = document.getElementById("pipeXrayApproveBtn");
   const pipeXrayJumpBtn = document.getElementById("pipeXrayJumpBtn");
   const pipeXrayDeleteBtn = document.getElementById("pipeXrayDeleteBtn");
@@ -300,6 +384,11 @@ export function createReviewAndPipelineController(state, callbacks) {
 
     if (!page) {
       pipeXrayTitle.textContent = "请点击左侧照片查看加工详情";
+      if (pipeXrayVerdictPill) {
+        pipeXrayVerdictPill.className = "pipe-tag hidden";
+        pipeXrayVerdictPill.textContent = "";
+      }
+      if (pipeXrayCol) pipeXrayCol.classList.remove("is-ocr-focused");
       pipeXrayApproveBtn.disabled = true;
       pipeXrayJumpBtn.disabled = true;
       pipeXrayDeleteBtn.disabled = true;
@@ -308,7 +397,7 @@ export function createReviewAndPipelineController(state, callbacks) {
       pipeXrayTimeline.replaceChildren(
         el("div", {
           class: "pack-empty-state",
-          text: "左侧选择任意一页照片后，此处会对比展示「原图 vs 清洗成片」并逐项列出切边、展平、去阴影与识别出来的正文片段。",
+          text: "左侧选择任意一页照片后，此处将对比展示「原图 vs 洗净成片」，并将重点空间留给完整离线文字识别输出。",
         })
       );
       return;
@@ -316,7 +405,7 @@ export function createReviewAndPipelineController(state, callbacks) {
 
     selectedPipelinePageId = page.id;
     const seqLabel = `#${page.seq_no}${page.spread_side !== "S" ? page.spread_side : ""}`;
-    pipeXrayTitle.textContent = `第 ${seqLabel} 页 · ${translateStatus(page.status)}`;
+    pipeXrayTitle.textContent = `第 ${seqLabel} 页`;
     pipeXrayApproveBtn.disabled = page.status === "APPROVED";
     pipeXrayJumpBtn.disabled = false;
     pipeXrayDeleteBtn.disabled = false;
@@ -330,9 +419,11 @@ export function createReviewAndPipelineController(state, callbacks) {
     // 1. Capture QA Step
     const flags = Array.isArray(page.qa_flags) ? [...page.qa_flags] : [];
     if (page.is_duplicate && !flags.includes("duplicate_page")) flags.push("duplicate_page");
+    const blurScore = Math.round(Number(page.blur_score || 0));
+    const brightScore = Math.round(Number(page.brightness || 0));
     const qaChips = [
-      el("span", { class: "pipe-tag", text: `清晰度 ${Math.round(Number(page.blur_score || 0))}` }),
-      el("span", { class: "pipe-tag", text: `曝光 ${Math.round(Number(page.brightness || 0))}` }),
+      el("span", { class: "pipe-tag", text: `清晰度 ${blurScore}` }),
+      el("span", { class: "pipe-tag", text: `曝光 ${brightScore}` }),
     ];
     if (flags.length) {
       flags.forEach((f) => qaChips.push(el("span", { class: "pipe-tag is-warn", text: translateFlag(f) })));
@@ -341,17 +432,14 @@ export function createReviewAndPipelineController(state, callbacks) {
     }
 
     // 2. Cleaning Step
-    const cleanChips = formatCleanActions(page).map((c) => el("span", { class: c.cls, text: c.label }));
+    const cleanActionList = formatCleanActions(page);
+    const cleanChips = cleanActionList.map((c) => el("span", { class: c.cls, text: c.label }));
     const meta = page.clean_meta || {};
     const sizeNote =
       meta.output_width && meta.output_height ? `${meta.output_width}×${meta.output_height}` : "";
 
-    // 3. OCR Step
-    const ocrInfo = formatOcrSummary(page);
-    const fullTxt = String(page.clean_text || page.ocr_text || "").trim();
-
-    // 4. Plain Conclusion & Guidance
-    let verdictBadge = "正在自动排队加工";
+    // 3. Plain Verdict & Action Guidance
+    let verdictBadge = "加工中";
     let verdictCls = "pipe-tag";
     let verdictDesc = "后台正在依次执行图像清洗与离线文字识别，完成后会自动刷新状态。";
     if (page.status === "READY" || page.status === "APPROVED" || page.status === "LLM_DONE") {
@@ -371,17 +459,87 @@ export function createReviewAndPipelineController(state, callbacks) {
       verdictDesc = page.error_msg || "识别或清洗过程意外中断，可点「重试失败页」或删掉重拍。";
     }
 
+    if (pipeXrayVerdictPill) {
+      pipeXrayVerdictPill.className = verdictCls;
+      pipeXrayVerdictPill.textContent = verdictBadge;
+    }
+    if (pipeXrayCol) {
+      pipeXrayCol.classList.toggle("is-ocr-focused", xrayOcrExpanded);
+    }
+
+    // Merged & collapsible 1-line summary replacing the 3 redundant log boxes
+    const inlineParts = [`清晰度 ${blurScore}`];
+    cleanActionList.slice(0, 3).forEach((c) => inlineParts.push(c.label));
+    if (sizeNote) inlineParts.push(sizeNote);
+    const inlineMetrics = inlineParts.join(" · ");
+
+    let diagPillCls = "pipe-tag is-ok";
+    let diagPillText = "初检正常";
+    if (page.status === "FAILED") {
+      diagPillCls = "pipe-tag is-danger";
+      diagPillText = "识别中断";
+    } else if (flags.length) {
+      diagPillCls = "pipe-tag is-warn";
+      diagPillText =
+        flags.length > 1 ? `${translateFlag(flags[0])} +${flags.length - 1}` : translateFlag(flags[0]);
+    } else if (page.status === "NEEDS_REVIEW") {
+      diagPillCls = "pipe-tag is-warn";
+      diagPillText = "建议抽核";
+    }
+
+    const diagDetails = el("details", { class: "pipe-diag-details" }, [
+      el("summary", { class: "pipe-diag-summary" }, [
+        el("span", { class: "pipe-diag-label", text: "处理摘要" }),
+        el("span", { class: "pipe-diag-inline", text: inlineMetrics, title: inlineMetrics }),
+        el("span", { class: diagPillCls, text: diagPillText }),
+      ]),
+      el("div", { class: "pipe-diag-body" }, [
+        el("div", { class: "pipe-diag-row" }, [
+          el("span", { class: "pipe-diag-k", text: "初检" }),
+          el("div", { class: "pipe-tags" }, qaChips),
+        ]),
+        el("div", { class: "pipe-diag-row" }, [
+          el("span", { class: "pipe-diag-k", text: "清洗" }),
+          el("div", { class: "pipe-tags" }, [
+            ...cleanChips,
+            ...(sizeNote ? [el("span", { class: "pipe-tag mono", text: sizeNote })] : []),
+          ]),
+        ]),
+        el("div", { class: "pipe-diag-row" }, [
+          el("span", { class: "pipe-diag-k", text: "结论" }),
+          el("span", { class: "muted-note", style: "line-height:1.5;", text: verdictDesc }),
+        ]),
+      ]),
+    ]);
+    diagDetails.open = xrayDiagOpen;
+    diagDetails.addEventListener("toggle", () => {
+      xrayDiagOpen = diagDetails.open;
+    });
+
+    // Enlarged Hero OCR Output Section (full untruncated Markdown + copy + expand focus)
+    const ocrInfo = formatOcrSummary(page);
+    const fullTxt = String(page.clean_text || page.ocr_text || "").trim();
+
+    const ocrStore = el("textarea", {
+      id: "pipeXrayOcrRawStore",
+      class: "sr-only",
+      readonly: "readonly",
+      tabindex: "-1",
+      "aria-hidden": "true",
+    });
+    ocrStore.value = fullTxt;
+
     const ocrBox = el("div", {
-      class: `pipe-ocr-preview scroller${xrayOcrViewMode === "source" ? " is-source" : ""}`,
+      class: `pipe-ocr-body scroller${xrayOcrViewMode === "source" ? " is-source" : ""}`,
     });
     function fillOcrBox() {
       ocrBox.classList.toggle("is-source", xrayOcrViewMode === "source");
       if (xrayOcrViewMode === "source") {
         ocrBox.textContent = fullTxt
-          ? fullTxt.slice(0, 1200)
+          ? fullTxt
           : "（本页暂未识出有效正文，如原图确实模糊/空白可直接当废片删掉）";
       } else {
-        ocrBox.replaceChildren(renderSafeMarkdown(fullTxt.slice(0, 1200)));
+        ocrBox.replaceChildren(renderSafeMarkdown(fullTxt));
       }
     }
     fillOcrBox();
@@ -389,13 +547,13 @@ export function createReviewAndPipelineController(state, callbacks) {
     const btnRender = el("button", {
       type: "button",
       class: `seg-btn${xrayOcrViewMode === "render" ? " is-active" : ""}`,
-      style: "padding:2px 7px;font-size:11px;",
+      style: "padding:2px 8px;font-size:11.5px;",
       text: "渲染",
     });
     const btnSource = el("button", {
       type: "button",
       class: `seg-btn${xrayOcrViewMode === "source" ? " is-active" : ""}`,
-      style: "padding:2px 7px;font-size:11px;",
+      style: "padding:2px 8px;font-size:11.5px;",
       text: "MD 源码",
     });
     btnRender.addEventListener("click", () => {
@@ -411,39 +569,48 @@ export function createReviewAndPipelineController(state, callbacks) {
       fillOcrBox();
     });
 
-    pipeXrayTimeline.replaceChildren(
-      el("div", { class: "pipe-tl-step" }, [
-        el("div", { class: "pipe-tl-head" }, [
-          el("span", { text: "① 拍照入库与初检" }),
-          el("span", { class: flags.length ? "pipe-tag is-warn" : "pipe-tag is-ok", text: flags.length ? "发现异常标记" : "初检通过" }),
-        ]),
-        el("div", { class: "pipe-tags" }, qaChips),
-      ]),
-      el("div", { class: "pipe-tl-step" }, [
-        el("div", { class: "pipe-tl-head" }, [
-          el("span", { text: "② 图像美容清洗做了啥" }),
-          sizeNote ? el("span", { class: "muted-note mono", style: "font-size:11.5px;", text: sizeNote }) : el("span"),
-        ]),
-        el("div", { class: "pipe-tags" }, cleanChips),
-      ]),
-      el("div", { class: "pipe-tl-step" }, [
-        el("div", { class: "pipe-tl-head" }, [
-          el("div", { class: "toolbar-row", style: "gap:6px;" }, [
-            el("span", { text: "③ 离线文字识别 (OCR)" }),
-            el("div", { class: "segmented-bar", style: "padding:2px;" }, [btnRender, btnSource]),
-          ]),
+    const copyBtn = el("button", {
+      type: "button",
+      class: "btn btn-compact copy-button",
+      command: "--copy",
+      commandfor: "pipeXrayOcrRawStore",
+      title: "复制完整 Markdown 原文",
+      text: "复制 MD",
+    });
+    const copyTip = el("span", { class: "copy-tip", role: "status" });
+    const copyWrap = el("span", { class: "copy-wrap" }, [copyBtn, copyTip]);
+
+    const expandBtn = el("button", {
+      type: "button",
+      class: `btn btn-compact${xrayOcrExpanded ? " btn-primary" : ""}`,
+      text: xrayOcrExpanded ? "显示对比图" : "放大正文",
+      "aria-pressed": String(xrayOcrExpanded),
+    });
+    expandBtn.addEventListener("click", () => {
+      xrayOcrExpanded = !xrayOcrExpanded;
+      if (pipeXrayCol) pipeXrayCol.classList.toggle("is-ocr-focused", xrayOcrExpanded);
+      expandBtn.textContent = xrayOcrExpanded ? "显示对比图" : "放大正文";
+      expandBtn.classList.toggle("btn-primary", xrayOcrExpanded);
+      expandBtn.setAttribute("aria-pressed", String(xrayOcrExpanded));
+    });
+
+    const ocrHero = el("section", { class: "pipe-ocr-hero", "aria-label": "离线文字识别结果" }, [
+      el("div", { class: "pipe-ocr-head" }, [
+        el("div", { class: "toolbar-row", style: "gap:8px;min-width:0;" }, [
+          el("span", { class: "pipe-ocr-title", text: "离线文字识别输出" }),
           el("span", { class: ocrInfo.cls, text: `${ocrInfo.badge} · ${ocrInfo.note}` }),
         ]),
-        ocrBox,
-      ]),
-      el("div", { class: "pipe-tl-step" }, [
-        el("div", { class: "pipe-tl-head" }, [
-          el("span", { text: "④ 结论与建议" }),
-          el("span", { class: verdictCls, text: verdictBadge }),
+        el("div", { class: "toolbar-row", style: "gap:6px;" }, [
+          el("div", { class: "segmented-bar", style: "padding:2px;" }, [btnRender, btnSource]),
+          copyWrap,
+          expandBtn,
         ]),
-        el("div", { class: "muted-note", style: "font-size:12.5px;line-height:1.5;", text: verdictDesc }),
-      ])
-    );
+      ]),
+      ocrStore,
+      ocrBox,
+    ]);
+
+    pipeXrayTimeline.replaceChildren(diagDetails, ocrHero);
   }
 
   function renderPipelineList() {
@@ -467,7 +634,7 @@ export function createReviewAndPipelineController(state, callbacks) {
       const isSelected = selectedPipelinePageId === p.id;
       const isWarn = p.status === "NEEDS_REVIEW" || p.status === "FAILED";
       const rawTxt = String(p.clean_text || p.ocr_text || "").replace(/\s+/g, " ").trim();
-      const snippet = rawTxt ? rawTxt.slice(0, 42) : "（未识出文字或待处理）";
+      const snippet = rawTxt ? rawTxt.slice(0, 38) : "（未识出文字或待处理）";
 
       const flags = Array.isArray(p.qa_flags) ? [...p.qa_flags] : [];
       if (p.is_duplicate && !flags.includes("duplicate_page")) flags.push("duplicate_page");
@@ -479,7 +646,7 @@ export function createReviewAndPipelineController(state, callbacks) {
         }),
       ];
       formatCleanActions(p)
-        .slice(0, 3)
+        .slice(0, 1)
         .forEach((c) => stageTags.push(el("span", { class: c.cls, text: c.label })));
 
       const ocrInfo = formatOcrSummary(p);
@@ -528,7 +695,6 @@ export function createReviewAndPipelineController(state, callbacks) {
           ]),
           el("div", { class: "pipe-row-side" }, [
             el("span", { class: statusCls, text: statusLabel }),
-            el("span", { class: "muted-note", style: "font-size:11.5px;", text: isSelected ? "右侧已展开对比 →" : "点开看原图对比" }),
           ]),
         ]
       );
