@@ -21,6 +21,8 @@ class CleanProfile:
     enhance_mode: EnhanceMode = "clean_color"
     denoise: bool = True
     deskew: bool = True
+    auto_rotate: bool = True
+    manual_rotate_deg: int | None = None
 
     @classmethod
     def from_dict(cls, data: dict[str, Any] | None) -> "CleanProfile":
@@ -29,6 +31,10 @@ class CleanProfile:
         mode = str(data.get("enhance_mode", "clean_color"))
         if mode not in ("clean_color", "grayscale_crisp", "bw_sauvola"):
             mode = "clean_color"
+        raw_manual = data.get("manual_rotate_deg", None)
+        manual_deg: int | None = None
+        if raw_manual is not None and raw_manual != "":
+            manual_deg = int(raw_manual) % 360
         return cls(
             split_spread=bool(data.get("split_spread", False)),
             auto_crop=bool(data.get("auto_crop", True)),
@@ -37,10 +43,24 @@ class CleanProfile:
             enhance_mode=mode,  # type: ignore[arg-type]
             denoise=bool(data.get("denoise", True)),
             deskew=bool(data.get("deskew", True)),
+            auto_rotate=bool(data.get("auto_rotate", True)),
+            manual_rotate_deg=manual_deg,
         )
 
     def to_dict(self) -> dict[str, Any]:
         return asdict(self)
+
+
+def rotate_image_90(bgr: np.ndarray, deg_cw: int) -> np.ndarray:
+    """Rotate image clockwise by a multiple of 90 degrees (0, 90, 180, 270)."""
+    norm = int(round(float(deg_cw) / 90.0) * 90) % 360
+    if norm == 90:
+        return cv2.rotate(bgr, cv2.ROTATE_90_CLOCKWISE)
+    if norm == 180:
+        return cv2.rotate(bgr, cv2.ROTATE_180)
+    if norm == 270:
+        return cv2.rotate(bgr, cv2.ROTATE_90_COUNTERCLOCKWISE)
+    return bgr
 
 
 @dataclass(slots=True)
@@ -188,7 +208,7 @@ def detect_and_crop_page(bgr: np.ndarray) -> tuple[np.ndarray, bool]:
 
 
 def deskew_small_angle(bgr: np.ndarray) -> tuple[np.ndarray, float]:
-    """Estimate small residual text-line tilt (±12 deg) and rotate upright."""
+    """Estimate small residual text-line tilt (±20 deg) and rotate upright."""
     h, w = bgr.shape[:2]
     if h < 120 or w < 120:
         return bgr, 0.0
@@ -227,7 +247,7 @@ def deskew_small_angle(bgr: np.ndarray) -> tuple[np.ndarray, float]:
             if abs(dx) < 1e-3:
                 continue
             deg = float(np.degrees(np.arctan2(dy, dx)))
-            if -12.0 <= deg <= 12.0:
+            if -20.0 <= deg <= 20.0:
                 angles.append(deg)
 
     if len(angles) < 3:
@@ -504,6 +524,8 @@ def clean_page_image(bgr: np.ndarray, profile: CleanProfile | None = None) -> Cl
     prof = profile or CleanProfile()
     img = bgr.copy()
     cropped = False
+    rotated_deg = 0
+    rotation_source = "none"
     deskew_deg = 0.0
     dewarp_px = 0.0
     fingers_removed = 0
@@ -512,6 +534,19 @@ def clean_page_image(bgr: np.ndarray, profile: CleanProfile | None = None) -> Cl
         img, cropped = detect_and_crop_page(img)
     if prof.remove_fingers:
         img, fingers_removed = remove_edge_fingers(img)
+    if prof.manual_rotate_deg is not None:
+        rotated_deg = int(prof.manual_rotate_deg) % 360
+        rotation_source = "manual"
+        if rotated_deg:
+            img = rotate_image_90(img, rotated_deg)
+    elif prof.auto_rotate:
+        from book_cleaner.pipeline.ocr_engine import detect_text_orientation_90
+
+        detected = detect_text_orientation_90(img)
+        if detected:
+            rotated_deg = int(detected) % 360
+            rotation_source = "auto"
+            img = rotate_image_90(img, rotated_deg)
     if prof.deskew:
         img, deskew_deg = deskew_small_angle(img)
     if prof.dewarp:
@@ -524,6 +559,8 @@ def clean_page_image(bgr: np.ndarray, profile: CleanProfile | None = None) -> Cl
     )
     diagnostics = {
         "cropped": cropped,
+        "rotated_deg": rotated_deg,
+        "rotation_source": rotation_source,
         "deskew_deg": deskew_deg,
         "dewarp_px": dewarp_px,
         "fingers_removed": fingers_removed,

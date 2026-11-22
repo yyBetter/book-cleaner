@@ -599,6 +599,29 @@ class PipelineCoordinator:
         )
         return updated
 
+    def rotate_page(
+        self,
+        page_id: int,
+        delta_deg: int = 90,
+        *,
+        rerun_ocr: bool = True,
+    ) -> dict[str, Any]:
+        page = self.db.get_page(page_id)
+        if page is None:
+            raise KeyError(f"Page {page_id} not found")
+        prev_deg = int((page.get("clean_meta") or {}).get("rotated_deg") or 0)
+        snapped_delta = int(round(float(delta_deg) / 90.0) * 90)
+        next_deg = (prev_deg + snapped_delta) % 360
+
+        updated = self.reclean_page(
+            page_id,
+            profile_patch={"manual_rotate_deg": next_deg},
+            rerun_ocr=False,
+        )
+        if rerun_ocr:
+            updated = self.process_ocr_page(updated)
+        return updated
+
     def run_single_llm_clean(self, page_id: int) -> dict[str, Any]:
         page = self.db.get_page(page_id)
         if page is None:

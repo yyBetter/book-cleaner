@@ -127,6 +127,8 @@ export function createReviewAndPipelineController(state, callbacks) {
   const pipeXrayCol = document.getElementById("pipeXrayCol");
   const pipeXrayTitle = document.getElementById("pipeXrayTitle");
   const pipeXrayVerdictPill = document.getElementById("pipeXrayVerdictPill");
+  const pipeXrayRotLeftBtn = document.getElementById("pipeXrayRotLeftBtn");
+  const pipeXrayRotRightBtn = document.getElementById("pipeXrayRotRightBtn");
   const pipeXrayApproveBtn = document.getElementById("pipeXrayApproveBtn");
   const pipeXrayJumpBtn = document.getElementById("pipeXrayJumpBtn");
   const pipeXrayDeleteBtn = document.getElementById("pipeXrayDeleteBtn");
@@ -315,6 +317,13 @@ export function createReviewAndPipelineController(state, callbacks) {
     }
     const m = page.clean_meta || {};
     const chips = [];
+    const rot = ((Number(m.rotated_deg || 0) % 360) + 360) % 360;
+    if (rot !== 0) {
+      chips.push({
+        label: m.rotation_source === "manual" ? `手动旋转 ${rot}°` : `自动转正 ${rot}°`,
+        cls: "pipe-tag is-ok",
+      });
+    }
     if (m.cropped) chips.push({ label: "已切边", cls: "pipe-tag" });
     const deg = Number(m.deskew_deg || 0);
     if (Math.abs(deg) >= 0.3) chips.push({ label: `纠偏 ${deg.toFixed(1)}°`, cls: "pipe-tag" });
@@ -389,6 +398,8 @@ export function createReviewAndPipelineController(state, callbacks) {
         pipeXrayVerdictPill.textContent = "";
       }
       if (pipeXrayCol) pipeXrayCol.classList.remove("is-ocr-focused");
+      if (pipeXrayRotLeftBtn) pipeXrayRotLeftBtn.disabled = true;
+      if (pipeXrayRotRightBtn) pipeXrayRotRightBtn.disabled = true;
       pipeXrayApproveBtn.disabled = true;
       pipeXrayJumpBtn.disabled = true;
       pipeXrayDeleteBtn.disabled = true;
@@ -406,6 +417,8 @@ export function createReviewAndPipelineController(state, callbacks) {
     selectedPipelinePageId = page.id;
     const seqLabel = `#${page.seq_no}${page.spread_side !== "S" ? page.spread_side : ""}`;
     pipeXrayTitle.textContent = `第 ${seqLabel} 页`;
+    if (pipeXrayRotLeftBtn) pipeXrayRotLeftBtn.disabled = false;
+    if (pipeXrayRotRightBtn) pipeXrayRotRightBtn.disabled = false;
     pipeXrayApproveBtn.disabled = page.status === "APPROVED";
     pipeXrayJumpBtn.disabled = false;
     pipeXrayDeleteBtn.disabled = false;
@@ -972,8 +985,9 @@ export function createReviewAndPipelineController(state, callbacks) {
 
     const m = p.clean_meta || {};
     if (m.bg_uniformity_before !== undefined) {
+      const rotPart = Number(m.rotated_deg || 0) % 360 !== 0 ? `转正:${m.rotated_deg}° · ` : "";
       reviewCleanDiag.textContent =
-        `切边:${m.cropped ? "是" : "否"} · 纠偏:${m.deskew_deg || 0}° · 展平:${m.dewarp_px || 0}px · 擦除手指:${m.fingers_removed || 0} · 底色波动:${m.bg_uniformity_before}→${m.bg_uniformity_after}`;
+        `${rotPart}切边:${m.cropped ? "是" : "否"} · 纠偏:${m.deskew_deg || 0}° · 展平:${m.dewarp_px || 0}px · 擦除手指:${m.fingers_removed || 0} · 底色波动:${m.bg_uniformity_before}→${m.bg_uniformity_after}`;
     } else {
       reviewCleanDiag.textContent = "等待或已完成本地图像清洗";
     }
@@ -1153,6 +1167,44 @@ export function createReviewAndPipelineController(state, callbacks) {
     }
   });
 
+  async function handleRotatePage(btn, pageId, deltaDeg, afterRotate) {
+    if (!pageId) return;
+    await withButtonLoading(btn, "旋转识字中...", async () => {
+      try {
+        const updated = await apiJson(`/api/pages/${pageId}/rotate`, {
+          method: "POST",
+          body: { delta_deg: deltaDeg, rerun_ocr: true },
+        });
+        await afterRotate(updated);
+        if (callbacks.onStatsNeeded) callbacks.onStatsNeeded();
+        showToast("已旋转并重新完成离线识别", "ok");
+      } catch (err) {
+        showToast(err.message, "danger");
+      }
+    });
+  }
+
+  const reviewRotLeftBtn = document.getElementById("reviewRotLeftBtn");
+  const reviewRotRightBtn = document.getElementById("reviewRotRightBtn");
+  if (reviewRotLeftBtn) {
+    reviewRotLeftBtn.addEventListener("click", () => {
+      if (!selectedPage) return;
+      handleRotatePage(reviewRotLeftBtn, selectedPage.id, -90, async (updated) => {
+        await selectPage(updated.id);
+        renderGallery();
+      });
+    });
+  }
+  if (reviewRotRightBtn) {
+    reviewRotRightBtn.addEventListener("click", () => {
+      if (!selectedPage) return;
+      handleRotatePage(reviewRotRightBtn, selectedPage.id, 90, async (updated) => {
+        await selectPage(updated.id);
+        renderGallery();
+      });
+    });
+  }
+
   const recleanPageBtn = document.getElementById("recleanPageBtn");
   recleanPageBtn.addEventListener("click", async () => {
     if (!selectedPage) return;
@@ -1239,6 +1291,24 @@ export function createReviewAndPipelineController(state, callbacks) {
     openJobsDialogBtn.addEventListener("click", async () => {
       await refreshJobs();
       pipelineJobsDialog.showModal();
+    });
+  }
+
+  if (pipeXrayRotLeftBtn) {
+    pipeXrayRotLeftBtn.addEventListener("click", () => {
+      if (!selectedPipelinePageId) return;
+      handleRotatePage(pipeXrayRotLeftBtn, selectedPipelinePageId, -90, async (updated) => {
+        await refreshPipelinePages(updated.id);
+      });
+    });
+  }
+
+  if (pipeXrayRotRightBtn) {
+    pipeXrayRotRightBtn.addEventListener("click", () => {
+      if (!selectedPipelinePageId) return;
+      handleRotatePage(pipeXrayRotRightBtn, selectedPipelinePageId, 90, async (updated) => {
+        await refreshPipelinePages(updated.id);
+      });
     });
   }
 

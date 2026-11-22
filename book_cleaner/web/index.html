@@ -367,6 +367,7 @@
                 <label class="toggle-row"><span>智能切边矫正</span><input id="optAutoCrop" class="toggle-switch" type="checkbox" checked></label>
                 <label class="toggle-row"><span>弯曲展平</span><input id="optDewarp" class="toggle-switch" type="checkbox" checked></label>
                 <label class="toggle-row"><span>手指擦除</span><input id="optRemoveFingers" class="toggle-switch" type="checkbox" checked></label>
+                <label class="toggle-row"><span>文字朝向自动转正 (90°/180°)</span><input id="optAutoRotate" class="toggle-switch" type="checkbox" checked></label>
                 <label class="toggle-row"><span>自动纠偏</span><input id="optDeskew" class="toggle-switch" type="checkbox" checked></label>
                 <label class="toggle-row"><span>去噪漂白</span><input id="optDenoise" class="toggle-switch" type="checkbox" checked></label>
               </div>
@@ -479,6 +480,8 @@
                   <span id="pipeXrayVerdictPill" class="pipe-tag hidden"></span>
                 </div>
                 <div class="toolbar-row" style="gap:6px;flex:none;">
+                  <button id="pipeXrayRotLeftBtn" type="button" class="btn btn-compact" title="逆时针旋转 90° 并重新识字" disabled>左转</button>
+                  <button id="pipeXrayRotRightBtn" type="button" class="btn btn-compact" title="顺时针旋转 90° 并重新识字" disabled>右转</button>
                   <button id="pipeXrayApproveBtn" type="button" class="btn btn-compact btn-primary" disabled>直接通过</button>
                   <button id="pipeXrayJumpBtn" type="button" class="btn btn-compact" disabled>精校对比</button>
                   <button id="pipeXrayDeleteBtn" type="button" class="btn btn-compact btn-danger-ghost" disabled>删废片</button>
@@ -559,6 +562,8 @@
                     <option value="bw_sauvola">Sauvola 黑白</option>
                   </select>
                   <button id="recleanPageBtn" type="button" class="btn btn-sm">重洗此页</button>
+                  <button id="reviewRotLeftBtn" type="button" class="btn btn-sm" title="逆时针旋转 90° 并重新识字">左转 90°</button>
+                  <button id="reviewRotRightBtn" type="button" class="btn btn-sm" title="顺时针旋转 90° 并重新识字">右转 90°</button>
                   <button id="zoomToggleBtn" type="button" class="btn btn-sm">放大细节</button>
                 </div>
               </div>

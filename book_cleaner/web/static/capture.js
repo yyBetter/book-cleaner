@@ -67,6 +67,7 @@ export function createCaptureController(state, callbacks) {
     auto_crop: document.getElementById("optAutoCrop"),
     dewarp: document.getElementById("optDewarp"),
     remove_fingers: document.getElementById("optRemoveFingers"),
+    auto_rotate: document.getElementById("optAutoRotate"),
     deskew: document.getElementById("optDeskew"),
     denoise: document.getElementById("optDenoise"),
     enhance_mode: document.getElementById("optEnhanceMode"),
@@ -78,6 +79,7 @@ export function createCaptureController(state, callbacks) {
       auto_crop: profileEls.auto_crop.checked,
       dewarp: profileEls.dewarp.checked,
       remove_fingers: profileEls.remove_fingers.checked,
+      auto_rotate: profileEls.auto_rotate ? profileEls.auto_rotate.checked : true,
       deskew: profileEls.deskew.checked,
       denoise: profileEls.denoise.checked,
       enhance_mode: profileEls.enhance_mode.value,
@@ -104,6 +106,9 @@ export function createCaptureController(state, callbacks) {
     profileEls.auto_crop.checked = profile.auto_crop !== false;
     profileEls.dewarp.checked = profile.dewarp !== false;
     profileEls.remove_fingers.checked = profile.remove_fingers !== false;
+    if (profileEls.auto_rotate) {
+      profileEls.auto_rotate.checked = profile.auto_rotate !== false;
+    }
     profileEls.deskew.checked = profile.deskew !== false;
     profileEls.denoise.checked = profile.denoise !== false;
     profileEls.enhance_mode.value = profile.enhance_mode || "clean_color";

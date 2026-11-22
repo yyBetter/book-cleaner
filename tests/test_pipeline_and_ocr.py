@@ -192,3 +192,72 @@ def test_format_ocr_blocks_reconstructs_markdown_table_and_lists():
     assert "1.清晰度评分低于阈值时立即告警。" in body
     assert "2.感知哈希dHash自动捕捉连拍重复页。" in body
 
+
+def test_auto_orientation_90_180_270_and_manual_rotate_api(tmp_path):
+    from fastapi.testclient import TestClient
+
+    from book_cleaner.api import create_app
+    from book_cleaner.config import AppConfig
+
+    samples = dict(generate_demo_pages())
+    upright = decode_image_with_exif(samples["04_tilted_clean_page.jpg"])
+    engine = RapidOCREngine()
+
+    cases = [
+        (cv2.ROTATE_90_CLOCKWISE, 270),
+        (cv2.ROTATE_180, 180),
+        (cv2.ROTATE_90_COUNTERCLOCKWISE, 90),
+    ]
+    for rot_code, expected_fix_deg in cases:
+        sideways = cv2.rotate(upright, rot_code)
+        res = clean_page_image(sideways, CleanProfile(auto_rotate=True, enhance_mode="clean_color"))
+        assert res.diagnostics["rotated_deg"] == expected_fix_deg
+        assert res.diagnostics["rotation_source"] == "auto"
+        assert res.image.shape[0] > res.image.shape[1]
+        if expected_fix_deg == 270:
+            ocr_res = engine.recognize(res.image)
+            assert "质量门禁" in ocr_res.formatted_text or "工序阶段" in ocr_res.formatted_text
+            assert "|" in ocr_res.formatted_text
+            assert "---" in ocr_res.formatted_text
+
+    # Explicit manual override skips auto-detection and forces exact clockwise rotation
+    manual_res = clean_page_image(
+        upright,
+        CleanProfile(auto_rotate=False, manual_rotate_deg=90),
+    )
+    assert manual_res.diagnostics["rotated_deg"] == 90
+    assert manual_res.diagnostics["rotation_source"] == "manual"
+    assert manual_res.image.shape[1] > manual_res.image.shape[0]
+
+    # FastAPI POST /api/pages/{id}/rotate endpoint rotates +90 then -90 synchronously with fresh OCR
+    cfg = AppConfig(data_dir=tmp_path / "rot_api_data", clean_workers=1, ocr_workers=1)
+    app = create_app(cfg, start_workers=False, ocr_engine=engine)
+    with TestClient(app) as client:
+        book_id = client.post("/api/books", json={"title": "旋转测试册"}).json()["id"]
+        sideways_90 = cv2.rotate(upright, cv2.ROTATE_90_CLOCKWISE)
+        ok, enc = cv2.imencode(".jpg", sideways_90)
+        assert ok
+        cap = client.post(
+            f"/api/books/{book_id}/capture",
+            files={"file": ("sideways.jpg", enc.tobytes(), "image/jpeg")},
+            data={"auto_rotate": "false", "deskew": "false"},
+        )
+        assert cap.status_code == 200
+        page_id = cap.json()["pages"][0]["id"]
+        client.app.state.coordinator.process_clean_page(client.get(f"/api/pages/{page_id}").json())
+
+        # Step 1: Rotate +90 -> manual 90
+        r1 = client.post(f"/api/pages/{page_id}/rotate", json={"delta_deg": 90, "rerun_ocr": True})
+        assert r1.status_code == 200
+        d1 = r1.json()
+        assert d1["clean_meta"]["rotated_deg"] == 90
+        assert d1["clean_meta"]["rotation_source"] == "manual"
+
+        # Step 2: Rotate +180 more -> total 270 (restores 90_cw input upright!) & refreshes OCR text
+        r2 = client.post(f"/api/pages/{page_id}/rotate", json={"delta_deg": 180, "rerun_ocr": True})
+        assert r2.status_code == 200
+        d2 = r2.json()
+        assert d2["clean_meta"]["rotated_deg"] == 270
+        assert "质量门禁" in d2["clean_text"] or "工序阶段" in d2["clean_text"]
+
+
