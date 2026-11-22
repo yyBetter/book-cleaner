@@ -391,7 +391,8 @@ def extract_tables_and_body(
     seen_sigs: set[str] = set()
     final_tables: list[dict[str, Any]] = []
     for tbl in [*text_tables, *spatial_tables]:
-        sig = "|".join(tbl["headers"]) + "||" + "|".join("|".join(r) for r in tbl["rows"])
+        raw_sig = "|".join(tbl["headers"]) + "||" + "|".join("|".join(r) for r in tbl["rows"])
+        sig = re.sub(r"\s+", "", raw_sig)
         if sig not in seen_sigs:
             seen_sigs.add(sig)
             final_tables.append(tbl)

@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import html
 import json
+import re
 import uuid
 import zipfile
 from datetime import datetime, timezone
@@ -153,6 +154,36 @@ def export_searchable_pdf(
     return out_path
 
 
+def _parse_pipe_row(line: str) -> list[str]:
+    stripped = line.strip().strip("|")
+    return [c.replace(r"\|", "|").strip() for c in re.split(r"(?<!\\)\|", stripped)]
+
+
+def _is_pipe_table_block(blk: str) -> bool:
+    lines = [ln.strip() for ln in blk.splitlines() if ln.strip()]
+    if len(lines) < 2:
+        return False
+    if "|" not in lines[0] or "|" not in lines[1]:
+        return False
+    sep_cells = _parse_pipe_row(lines[1])
+    return bool(sep_cells) and all(re.fullmatch(r"[:\-\s]+", c or "-") for c in sep_cells)
+
+
+def _render_pipe_table_xhtml(blk: str) -> str:
+    lines = [ln.strip() for ln in blk.splitlines() if ln.strip()]
+    headers = _parse_pipe_row(lines[0])
+    th_html = "".join(f"<th>{html.escape(h)}</th>" for h in headers)
+    body_rows = []
+    for ln in lines[2:]:
+        cells = _parse_pipe_row(ln)
+        if len(cells) < len(headers):
+            cells += [""] * (len(headers) - len(cells))
+        tds = "".join(f"<td>{html.escape(c)}</td>" for c in cells[: len(headers)])
+        body_rows.append(f"<tr>{tds}</tr>")
+    tbody_html = "".join(body_rows)
+    return f"<table><thead><tr>{th_html}</tr></thead><tbody>{tbody_html}</tbody></table>"
+
+
 def export_epub(book: dict[str, Any], pages: list[dict[str, Any]], out_path: Path) -> Path:
     """Export cleaned book text into a standards-compliant EPUB 3 archive."""
     out_path = Path(out_path)
@@ -182,6 +213,9 @@ def export_epub(book: dict[str, Any], pages: list[dict[str, Any]], out_path: Pat
         ".page-break { color: #888; font-size: 0.8em; border-top: 1px solid #ddd; "
         "margin-top: 1.8em; padding-top: 0.4em; }\n"
         "p { margin: 0.65em 0; text-align: justify; }\n"
+        "table { width: 100%; border-collapse: collapse; margin: 1em 0; font-size: 0.92em; }\n"
+        "th, td { border: 1px solid #ccc; padding: 6px 8px; text-align: left; }\n"
+        "th { background: #f4f4f2; font-weight: bold; }\n"
     )
 
     chapter_files: list[tuple[str, str, str]] = []  # (id, href, title)
@@ -213,6 +247,8 @@ def export_epub(book: dict[str, Any], pages: list[dict[str, Any]], out_path: Pat
                     body_parts.append(f"<h2>{html.escape(blk[3:].strip())}</h2>")
                 elif blk.startswith("# "):
                     body_parts.append(f"<h1>{html.escape(blk[2:].strip())}</h1>")
+                elif _is_pipe_table_block(blk):
+                    body_parts.append(_render_pipe_table_xhtml(blk))
                 else:
                     body_parts.append(f"<p>{html.escape(blk).replace(chr(10), '<br/>')}</p>")
 

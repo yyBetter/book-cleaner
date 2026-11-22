@@ -305,3 +305,113 @@ const STATUS_LABELS = {
 export function translateStatus(status) {
   return STATUS_LABELS[status] || status;
 }
+
+function parsePipeCells(line) {
+  const s = line.trim().replace(/^\|/, "").replace(/\|$/, "");
+  // Split on unescaped pipe
+  return s.split(/(?<!\\)\|/).map((c) => c.replace(/\\\|/g, "|").trim());
+}
+
+function isPipeSepLine(line, expectedCols) {
+  if (!line || !line.includes("|")) return false;
+  const cells = parsePipeCells(line);
+  if (cells.length < 2 || (expectedCols && cells.length !== expectedCols)) return false;
+  return cells.every((c) => /^:?-{2,}:?$/.test(c));
+}
+
+export function renderSafeMarkdown(text) {
+  const frag = document.createDocumentFragment();
+  const src = String(text || "").trim();
+  if (!src) {
+    frag.appendChild(
+      el("div", { class: "muted-note", text: "（本页暂无正文，如原图确实模糊/空白可直接当废片删掉）" })
+    );
+    return frag;
+  }
+
+  const lines = src.split(/\r?\n/);
+  let i = 0;
+  let paraBuf = [];
+
+  function flushPara() {
+    if (!paraBuf.length) return;
+    frag.appendChild(el("p", { class: "md-p", text: paraBuf.join(" ") }));
+    paraBuf = [];
+  }
+
+  while (i < lines.length) {
+    const raw = lines[i];
+    const ln = raw.trim();
+    if (!ln) {
+      flushPara();
+      i += 1;
+      continue;
+    }
+
+    // 1. GFM pipe table
+    if (ln.includes("|") && i + 1 < lines.length && isPipeSepLine(lines[i + 1].trim())) {
+      flushPara();
+      const headers = parsePipeCells(ln);
+      const colCount = headers.length;
+      const thead = el("thead", {}, [
+        el(
+          "tr",
+          {},
+          headers.map((h) => el("th", { text: h }))
+        ),
+      ]);
+      const tbodyRows = [];
+      i += 2;
+      while (i < lines.length && lines[i].trim().includes("|")) {
+        const cells = parsePipeCells(lines[i]);
+        while (cells.length < colCount) cells.push("");
+        tbodyRows.push(
+          el(
+            "tr",
+            {},
+            cells.slice(0, colCount).map((c) => el("td", { text: c }))
+          )
+        );
+        i += 1;
+      }
+      frag.appendChild(el("table", { class: "md-table" }, [thead, el("tbody", {}, tbodyRows)]));
+      continue;
+    }
+
+    // 2. Headings
+    const hm = /^(#{1,4})\s+(.*)$/.exec(ln);
+    if (hm) {
+      flushPara();
+      const lvl = hm[1].length;
+      frag.appendChild(el("div", { class: `md-h md-h${lvl}`, text: hm[2].trim() }));
+      i += 1;
+      continue;
+    }
+
+    // 3. List block
+    const isOrdered = /^\d{1,3}[.、)]\s+/.test(ln);
+    const isBullet = /^[-*•·]\s+/.test(ln);
+    if (isOrdered || isBullet) {
+      flushPara();
+      const listTag = isOrdered ? "ol" : "ul";
+      const items = [];
+      while (i < lines.length) {
+        const cur = lines[i].trim();
+        const mCur = isOrdered
+          ? /^\d{1,3}[.、)]\s+(.*)$/.exec(cur)
+          : /^[-*•·]\s+(.*)$/.exec(cur);
+        if (!mCur) break;
+        items.push(el("li", { text: mCur[1].trim() }));
+        i += 1;
+      }
+      frag.appendChild(el(listTag, { class: "md-list" }, items));
+      continue;
+    }
+
+    paraBuf.push(ln);
+    i += 1;
+  }
+
+  flushPara();
+  return frag;
+}

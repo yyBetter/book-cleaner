@@ -30,6 +30,7 @@ from book_cleaner.pipeline.llm_clean import (
     extract_sheet_rows_with_llm,
     test_llm_connection,
 )
+from book_cleaner.pipeline.ocr_engine import reformat_page_from_blocks
 from book_cleaner.pipeline.ocr_router import OCRSettings, test_deepseek_api_connection
 from book_cleaner.pipeline.sheet_matcher import match_book_to_template_pack
 from book_cleaner.storage import ShardedStorage
@@ -668,6 +669,28 @@ def create_app(
         count = db.retry_failed_pages(book_id=book_id)
         coordinator.wake_all()
         return {"retried": count}
+
+    @app.post("/api/books/{book_id}/reformat-markdown")
+    def reformat_book_markdown(book_id: int, force: bool = Query(False)) -> dict[str, Any]:
+        if db.get_book(book_id) is None:
+            raise HTTPException(status_code=404, detail="书目不存在")
+        pages = db.list_export_pages(book_id)
+        updated_count = 0
+        for p in pages:
+            formatted = reformat_page_from_blocks(p)
+            if not formatted:
+                continue
+            manually_edited = bool(p.get("clean_text")) and p.get("clean_text") != p.get("ocr_text")
+            patch: dict[str, Any] = {"ocr_text": formatted}
+            if force or not manually_edited:
+                patch["clean_text"] = formatted
+            if (p.get("ocr_text") == formatted) and (patch.get("clean_text", p.get("clean_text")) == p.get("clean_text")):
+                continue
+            db.update_page(int(p["id"]), **patch)
+            updated_count += 1
+        if updated_count > 0:
+            coordinator.events.publish("book_updated", {"book_id": book_id, "updated_pages": updated_count})
+        return {"updated_pages": updated_count}
 
     # ------------------------------------------------------------------
     # Desktop Camera Endpoints

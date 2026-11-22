@@ -4,6 +4,7 @@ import {
   apiJson,
   el,
   enableDialogLightDismissFallback,
+  renderSafeMarkdown,
   showToast,
   translateFlag,
   translateStatus,
@@ -23,6 +24,8 @@ export function createReviewAndPipelineController(state, callbacks) {
   let pipelineFilter = "ALL";
   let pipelineItems = [];
   let selectedPipelinePageId = null;
+  let xrayOcrViewMode = "render"; // "render" | "source"
+  let reviewTextViewMode = "edit"; // "edit" | "preview"
   let nextStepAction = "capture";
 
   // Pipeline Monitor elements
@@ -71,6 +74,7 @@ export function createReviewAndPipelineController(state, callbacks) {
   const reviewConfBadge = document.getElementById("reviewConfBadge");
   const reviewFlagRow = document.getElementById("reviewFlagRow");
   const reviewTextEditor = document.getElementById("reviewTextEditor");
+  const reviewMdPreview = document.getElementById("reviewMdPreview");
   const recleanModeSelect = document.getElementById("recleanModeSelect");
   const toggleMultiSelectBtn = document.getElementById("toggleMultiSelectBtn");
   const batchDeleteBar = document.getElementById("batchDeleteBar");
@@ -367,6 +371,46 @@ export function createReviewAndPipelineController(state, callbacks) {
       verdictDesc = page.error_msg || "识别或清洗过程意外中断，可点「重试失败页」或删掉重拍。";
     }
 
+    const ocrBox = el("div", {
+      class: `pipe-ocr-preview scroller${xrayOcrViewMode === "source" ? " is-source" : ""}`,
+    });
+    function fillOcrBox() {
+      ocrBox.classList.toggle("is-source", xrayOcrViewMode === "source");
+      if (xrayOcrViewMode === "source") {
+        ocrBox.textContent = fullTxt
+          ? fullTxt.slice(0, 1200)
+          : "（本页暂未识出有效正文，如原图确实模糊/空白可直接当废片删掉）";
+      } else {
+        ocrBox.replaceChildren(renderSafeMarkdown(fullTxt.slice(0, 1200)));
+      }
+    }
+    fillOcrBox();
+
+    const btnRender = el("button", {
+      type: "button",
+      class: `seg-btn${xrayOcrViewMode === "render" ? " is-active" : ""}`,
+      style: "padding:2px 7px;font-size:11px;",
+      text: "渲染",
+    });
+    const btnSource = el("button", {
+      type: "button",
+      class: `seg-btn${xrayOcrViewMode === "source" ? " is-active" : ""}`,
+      style: "padding:2px 7px;font-size:11px;",
+      text: "MD 源码",
+    });
+    btnRender.addEventListener("click", () => {
+      xrayOcrViewMode = "render";
+      btnRender.classList.add("is-active");
+      btnSource.classList.remove("is-active");
+      fillOcrBox();
+    });
+    btnSource.addEventListener("click", () => {
+      xrayOcrViewMode = "source";
+      btnSource.classList.add("is-active");
+      btnRender.classList.remove("is-active");
+      fillOcrBox();
+    });
+
     pipeXrayTimeline.replaceChildren(
       el("div", { class: "pipe-tl-step" }, [
         el("div", { class: "pipe-tl-head" }, [
@@ -384,13 +428,13 @@ export function createReviewAndPipelineController(state, callbacks) {
       ]),
       el("div", { class: "pipe-tl-step" }, [
         el("div", { class: "pipe-tl-head" }, [
-          el("span", { text: "③ 离线文字识别 (OCR)" }),
+          el("div", { class: "toolbar-row", style: "gap:6px;" }, [
+            el("span", { text: "③ 离线文字识别 (OCR)" }),
+            el("div", { class: "segmented-bar", style: "padding:2px;" }, [btnRender, btnSource]),
+          ]),
           el("span", { class: ocrInfo.cls, text: `${ocrInfo.badge} · ${ocrInfo.note}` }),
         ]),
-        el("div", {
-          class: "pipe-ocr-preview scroller",
-          text: fullTxt ? fullTxt.slice(0, 600) : "（本页暂未识出有效正文，如原图确实模糊/空白可直接当废片删掉）",
-        }),
+        ocrBox,
       ]),
       el("div", { class: "pipe-tl-step" }, [
         el("div", { class: "pipe-tl-head" }, [
@@ -746,6 +790,7 @@ export function createReviewAndPipelineController(state, callbacks) {
     compareRawImg.src = `/api/pages/${p.id}/image/raw?t=${ts}`;
     compareCleanImg.src = `/api/pages/${p.id}/image/clean?t=${ts}`;
     reviewTextEditor.value = p.clean_text || p.ocr_text || "";
+    syncReviewTextView();
 
     const confPct = p.ocr_confidence ? `${(p.ocr_confidence * 100).toFixed(1)}%` : "-";
     reviewConfBadge.textContent = `OCR 置信度 ${confPct} · 清晰度 ${Number(p.blur_score || 0).toFixed(0)}`;
@@ -771,6 +816,26 @@ export function createReviewAndPipelineController(state, callbacks) {
       recleanModeSelect.value = m.profile.enhance_mode;
     }
   }
+
+  function syncReviewTextView() {
+    if (!reviewTextEditor || !reviewMdPreview) return;
+    const isPreview = reviewTextViewMode === "preview";
+    reviewTextEditor.classList.toggle("hidden", isPreview);
+    reviewMdPreview.classList.toggle("hidden", !isPreview);
+    if (isPreview) {
+      reviewMdPreview.replaceChildren(renderSafeMarkdown(reviewTextEditor.value));
+    }
+    document.querySelectorAll("[data-review-text-mode]").forEach((btn) => {
+      btn.classList.toggle("is-active", btn.dataset.reviewTextMode === reviewTextViewMode);
+    });
+  }
+
+  document.querySelectorAll("[data-review-text-mode]").forEach((btn) => {
+    btn.addEventListener("click", () => {
+      reviewTextViewMode = btn.dataset.reviewTextMode || "edit";
+      syncReviewTextView();
+    });
+  });
 
   // Filter & Paging bindings
   document.querySelectorAll("[data-filter]").forEach((btn) => {

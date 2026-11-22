@@ -590,11 +590,18 @@
             <!-- Right Docked OCR Proofreading Inspector -->
             <div class="review-inspector">
               <div class="toolbar-between">
-                <h2 class="card-title" style="margin:0;">文本校对与元数据</h2>
+                <div class="toolbar-row" style="gap:8px;">
+                  <h2 class="card-title" style="margin:0;">文本校对与元数据</h2>
+                  <div class="segmented-bar" role="tablist" aria-label="文本视图切换">
+                    <button type="button" class="seg-btn is-active" data-review-text-mode="edit" style="padding:3px 9px;font-size:12px;">编辑 MD</button>
+                    <button type="button" class="seg-btn" data-review-text-mode="preview" style="padding:3px 9px;font-size:12px;">渲染预览</button>
+                  </div>
+                </div>
                 <span id="reviewConfBadge" class="pill">置信度 -</span>
               </div>
               <div id="reviewFlagRow" class="toolbar-row"></div>
               <textarea id="reviewTextEditor" class="input ocr-editor scroller" placeholder="等待 OCR 识别结果..."></textarea>
+              <div id="reviewMdPreview" class="md-preview-box hidden scroller"></div>
               <div class="review-actions">
                 <button id="saveTextBtn" type="button" class="btn btn-soft">
                   <span>保存</span>

@@ -12,7 +12,8 @@ from book_cleaner.camera import AutoTriggerState
 from book_cleaner.demo_generator import generate_demo_pages
 from book_cleaner.pipeline.image_clean import CleanProfile, clean_page_image, split_double_spread
 from book_cleaner.pipeline.llm_clean import LLMConfig, clean_text_with_llm, should_run_llm
-from book_cleaner.pipeline.ocr_engine import RapidOCREngine
+from book_cleaner.pipeline.data_clean import CleaningRules, extract_tables_and_body
+from book_cleaner.pipeline.ocr_engine import OCRBlock, RapidOCREngine, format_ocr_blocks
 from book_cleaner.pipeline.qa import evaluate_capture_qa
 from book_cleaner.storage import decode_image_with_exif
 
@@ -140,3 +141,54 @@ def test_auto_page_turn_trigger_state_machine():
     assert auto.update(hand, now=1.0) is False
     assert auto.update(hand, now=1.85) is False
     assert auto.state == "IDLE"
+
+
+def test_format_ocr_blocks_reconstructs_markdown_table_and_lists():
+    def _box(x0: float, y0: float, x1: float, y1: float, text: str) -> OCRBlock:
+        return OCRBlock(
+            bbox=[[x0, y0], [x1, y0], [x1, y1], [x0, y1]],
+            text=text,
+            confidence=0.96,
+        )
+
+    blocks = [
+        _box(113, 120, 648, 167, "第五章质量门禁与断点续传"),
+        _box(109, 200, 977, 237, "数据库采用SQLiteWAL预写日志架构，制定日期：2026年3月15日。"),
+        _box(108, 308, 970, 346, "1.清晰度评分低于阈值时立即告警。"),
+        _box(108, 421, 970, 457, "2.感知哈希dHash自动捕捉连拍重复页。"),
+        # 3-col x 4-row table
+        _box(122, 778, 233, 814, "工序阶段"),
+        _box(423, 776, 533, 813, "目标指标"),
+        _box(713, 776, 822, 810, "备注说明"),
+        _box(121, 832, 257, 872, "L0采集质检"),
+        _box(423, 830, 580, 869, "清晰度 >= 80"),
+        _box(714, 830, 872, 866, "模糊即时蜂鸣"),
+        _box(122, 889, 256, 926, "L1图像清洗"),
+        _box(423, 887, 577, 924, "阴影波动<5"),
+        _box(713, 885, 873, 922, "保留彩图印章"),
+        _box(121, 945, 257, 984, "L2离线识别"),
+        _box(422, 942, 600, 981, "置信度>=82%"),
+        _box(713, 942, 873, 979, "低分自动标黄"),
+    ]
+
+    md = format_ocr_blocks(blocks, img_height=1500, img_width=1100)
+    assert "## 第五章质量门禁与断点续传" in md
+    assert "| 工序阶段 | 目标指标 | 备注说明 |" in md
+    assert "| --- | --- | --- |" in md
+    assert "| L0采集质检 | 清晰度 >= 80 | 模糊即时蜂鸣 |" in md
+    assert "| L2离线识别 | 置信度>=82% | 低分自动标黄 |" in md
+
+    # Feeding standard GFM Markdown + spatial blocks must deduplicate to exactly 1 table
+    page_dict = {
+        "clean_text": md,
+        "ocr_text": md,
+        "ocr_blocks": [b.to_dict() for b in blocks],
+    }
+    tables, body = extract_tables_and_body(page_dict, CleaningRules(), set())
+    assert len(tables) == 1
+    assert tables[0]["headers"] == ["工序阶段", "目标指标", "备注说明"]
+    assert len(tables[0]["rows"]) == 3
+    assert "第五章质量门禁与断点续传" in body
+    assert "1.清晰度评分低于阈值时立即告警。" in body
+    assert "2.感知哈希dHash自动捕捉连拍重复页。" in body
+
