@@ -105,6 +105,7 @@ export function createReviewAndPipelineController(state, callbacks) {
   let imgMode = "clean"; // "clean" | "raw" | "split"
   let zoomScale = 1.0;
   let pinnedSyncEl = null;
+  let loadingTicker = null;
 
   // Compact Progress Strip & Jobs Dialog elements
   const kpiTotal = document.getElementById("kpiTotal");
@@ -149,11 +150,14 @@ export function createReviewAndPipelineController(state, callbacks) {
   const zoomToggleBtn = document.getElementById("zoomToggleBtn");
   const reviewCleanDiag = document.getElementById("reviewCleanDiag");
   const reviewConfBadge = document.getElementById("reviewConfBadge");
+  const reviewAlertBanner = document.getElementById("reviewAlertBanner");
   const reviewFlagRow = document.getElementById("reviewFlagRow");
   const reviewSyncHint = document.getElementById("reviewSyncHint");
+  const reviewLoadingPanel = document.getElementById("reviewLoadingPanel");
   const reviewTextEditor = document.getElementById("reviewTextEditor");
   const reviewMdPreview = document.getElementById("reviewMdPreview");
   const recleanModeSelect = document.getElementById("recleanModeSelect");
+  const reocrPageBtn = document.getElementById("reocrPageBtn");
   const toggleMultiSelectBtn = document.getElementById("toggleMultiSelectBtn");
   const batchDeleteBar = document.getElementById("batchDeleteBar");
   const selectAllReviewBtn = document.getElementById("selectAllReviewBtn");
@@ -712,25 +716,51 @@ export function createReviewAndPipelineController(state, callbacks) {
     out_of_range_alert: "数值越界告警",
   };
 
+  const PROCESSING_STATUSES = new Set([
+    "STAGING",
+    "CAPTURED",
+    "CLEANING",
+    "CLEANED",
+    "OCR_RUNNING",
+    "LLM_RUNNING",
+  ]);
+
+  const ENGINE_HUMAN_LABELS = {
+    rapidocr: "RapidOCR 离线",
+    ppocrv5_mobile: "PP-OCRv5 轻量离线",
+    ppocrv5_server: "PP-OCRv5 高精离线",
+    ollama_glm_ocr: "GLM-OCR 0.9B 视觉",
+    ollama_qwen25vl_3b: "Qwen2.5-VL 3B 视觉",
+    deepseek_ocr2_local: "DeepSeek-OCR 2 本地",
+    deepseek_ocr2_api: "Vision API",
+    hybrid_smart: "离线智能混合",
+  };
+
   function formatOcrEngineInfo(page) {
     const meta = (page && page.clean_meta) || {};
     const eng = String(meta.ocr_engine_used || "rapidocr");
     const engineMap = {
       rapidocr: { label: "RapidOCR 离线", cls: "pipe-tag" },
-      ppocrv5_mobile: { label: "PP-OCRv5 离线", cls: "pipe-tag" },
+      ppocrv5_mobile: { label: "PP-OCRv5 轻量离线", cls: "pipe-tag" },
       ppocrv5_server: { label: "PP-OCRv5 高精离线", cls: "pipe-tag is-ok" },
-      ollama_glm_ocr: { label: "Ollama 视觉升级", cls: "pipe-tag is-accent" },
-      ollama_qwen25vl_3b: { label: "Ollama 视觉升级", cls: "pipe-tag is-accent" },
-      deepseek_ocr2_local: { label: "DeepSeek-OCR 2 升级", cls: "pipe-tag is-accent" },
-      deepseek_ocr2_api: { label: "DeepSeek-OCR 2 升级", cls: "pipe-tag is-accent" },
+      ollama_glm_ocr: { label: "GLM-OCR 0.9B 视觉", cls: "pipe-tag is-accent" },
+      ollama_qwen25vl_3b: { label: "Qwen2.5-VL 3B 视觉", cls: "pipe-tag is-accent" },
+      deepseek_ocr2_local: { label: "DeepSeek-OCR 2 本地", cls: "pipe-tag is-accent" },
+      deepseek_ocr2_api: { label: "Vision API 升级", cls: "pipe-tag is-accent" },
     };
-    const info = engineMap[eng] || { label: eng, cls: "pipe-tag" };
+    const info = engineMap[eng] || { label: ENGINE_HUMAN_LABELS[eng] || eng, cls: "pipe-tag" };
+    const elapsedMs = Number(meta.ocr_elapsed_ms || 0);
+    const elapsedText = elapsedMs > 0 ? ` · ${(elapsedMs / 1000).toFixed(1)}s` : "";
     const reasons = Array.isArray(meta.ocr_upgrade_reasons) ? meta.ocr_upgrade_reasons : [];
     const reasonText = reasons.map((r) => UPGRADE_REASON_LABELS[r] || r).join("、");
+    const titleParts = [
+      reasonText ? `坐标锚定触发原因：${reasonText}` : "实际执行文字识别的 OCR 引擎",
+      elapsedMs > 0 ? `耗时 ${(elapsedMs / 1000).toFixed(1)} 秒` : "",
+    ].filter(Boolean);
     return {
-      label: info.label,
+      label: `${info.label}${elapsedText}`,
       cls: info.cls,
-      title: reasonText ? `坐标锚定触发原因：${reasonText}` : "实际执行文字识别的 OCR 引擎",
+      title: titleParts.join(" · "),
       hasLlmSheet: Boolean(meta.llm_sheet_extracted),
     };
   }
@@ -885,19 +915,29 @@ export function createReviewAndPipelineController(state, callbacks) {
       if (p.is_duplicate && !flags.includes("duplicate_page")) flags.push("duplicate_page");
       const hasWarn = flags.length > 0;
 
+      const isProc = PROCESSING_STATUSES.has(p.status);
       let tone = "muted";
       if (p.status === "APPROVED" || p.status === "LLM_DONE") tone = "ok";
       else if (p.status === "FAILED") tone = "danger";
+      else if (isProc) tone = "proc";
       else if (hasWarn || p.status === "NEEDS_REVIEW") tone = "warn";
 
       const shortStatus = SHORT_STATUS_LABELS[p.status] || translateStatus(p.status).slice(0, 2);
       const seqLabel = `#${p.seq_no}${p.spread_side !== "S" ? p.spread_side : ""}`;
       let subTxt = translateStatus(p.status);
-      if (hasWarn) {
+      if (p.status === "FAILED" && p.error_msg) {
+        subTxt = p.error_msg;
+      } else if (isProc) {
+        subTxt = p.status === "OCR_RUNNING" ? "正在识字与还原表格..." : `${translateStatus(p.status)}...`;
+      } else if (hasWarn) {
         subTxt = translateFlag(flags[0]);
       } else if (p.ocr_confidence) {
         subTxt = `${(Number(p.ocr_confidence) * 100).toFixed(1)}% · 清晰${Math.round(Number(p.blur_score || 0))}`;
       }
+
+      const badgeChildren = isProc
+        ? [el("span", { class: "proc-pulse-dot", "aria-hidden": "true" }), shortStatus]
+        : [shortStatus];
 
       const cardNodes = [
         el("img", {
@@ -909,9 +949,9 @@ export function createReviewAndPipelineController(state, callbacks) {
         el("div", { class: "review-card-body" }, [
           el("div", { class: "review-card-top" }, [
             el("span", { class: "review-card-seq", text: seqLabel }),
-            el("span", { class: `review-card-badge is-${tone}`, text: shortStatus }),
+            el("span", { class: `review-card-badge is-${tone}` }, badgeChildren),
           ]),
-          el("div", { class: `review-card-sub${hasWarn ? " is-warn" : ""}`, text: subTxt, title: subTxt }),
+          el("div", { class: `review-card-sub${hasWarn || p.status === "FAILED" ? " is-warn" : ""}`, text: subTxt, title: subTxt }),
         ]),
       ];
       if (multiSelectMode) {
@@ -966,8 +1006,129 @@ export function createReviewAndPipelineController(state, callbacks) {
     }
   }
 
+  function stopLoadingTicker() {
+    if (loadingTicker) {
+      clearInterval(loadingTicker);
+      loadingTicker = null;
+    }
+  }
+
+  function renderLoadingState(page) {
+    if (!reviewLoadingPanel) return;
+    stopLoadingTicker();
+    if (!page || !PROCESSING_STATUSES.has(page.status)) {
+      reviewLoadingPanel.classList.add("hidden");
+      reviewLoadingPanel.replaceChildren();
+      return;
+    }
+
+    const meta = page.clean_meta || {};
+    const activeEng = String(meta.ocr_active_engine || meta.ocr_engine_used || "rapidocr");
+    const engLabel = ENGINE_HUMAN_LABELS[activeEng] || activeEng;
+    const timeoutS = Math.max(30, Math.round(Number(meta.ocr_timeout_s || 300)));
+    const parsedStart = Date.parse(meta.ocr_started_at || page.updated_at || "");
+    const startMs = Number.isFinite(parsedStart) ? parsedStart : Date.now();
+    const isSlowLocalVlm =
+      activeEng.startsWith("ollama_") || activeEng === "deepseek_ocr2_local" || activeEng === "hybrid_smart";
+
+    const stageLabelMap = {
+      STAGING: "正在保存原始图像...",
+      CAPTURED: "已进入清洗队列，马上开始预处理...",
+      CLEANING: "正在执行光学清洗（去折痕 / 纠偏 / 自动扶正）...",
+      CLEANED: `已完成图像清洗，正在排队送入「${engLabel}」...`,
+      OCR_RUNNING: `正在调用「${engLabel}」识别文字与表格...`,
+      LLM_RUNNING: "正在进行文本级 LLM 精校...",
+    };
+
+    const elapsedNode = el("div", { class: "muted-note mono", style: "font-size:12px;" });
+    const updateElapsed = () => {
+      const sec = Math.max(0, Math.floor((Date.now() - startMs) / 1000));
+      elapsedNode.textContent =
+        page.status === "OCR_RUNNING"
+          ? `已等待 ${sec} 秒 · 单页超时上限 ${timeoutS} 秒`
+          : `当前已排队/处理 ${sec} 秒`;
+    };
+    updateElapsed();
+
+    const hintTxt = isSlowLocalVlm
+      ? "本地视觉大模型在无大显存电脑上处理复杂表格通常需 1～3 分钟，完成后将自动刷新，期间也可点击左侧继续拍摄。"
+      : "后台正在高速处理，完成后将自动展示识别结果。";
+
+    reviewLoadingPanel.replaceChildren(
+      el("div", { class: "loading-spinner", "aria-hidden": "true" }),
+      el("div", { class: "review-loading-title", text: stageLabelMap[page.status] || "后台正在处理本页..." }),
+      elapsedNode,
+      el("div", { class: "muted-note", style: "font-size:12px;max-width:340px;line-height:1.5;", text: hintTxt })
+    );
+    reviewLoadingPanel.classList.remove("hidden");
+    loadingTicker = setInterval(updateElapsed, 1000);
+  }
+
+  function renderReviewAlertBanner(page) {
+    if (!reviewAlertBanner) return;
+    reviewAlertBanner.replaceChildren();
+    if (!page) {
+      reviewAlertBanner.className = "review-alert hidden";
+      return;
+    }
+
+    const m = page.clean_meta || {};
+    const flags = Array.isArray(page.qa_flags) ? page.qa_flags : [];
+    const fallbackReason = String(m.ocr_fallback_reason || "").trim();
+    const isFailed = page.status === "FAILED";
+    const hasFallback =
+      Boolean(fallbackReason) ||
+      flags.includes("ocr_fallback_rapidocr") ||
+      flags.includes("ocr_blocked_offline_policy");
+
+    if (!isFailed && !page.error_msg && !hasFallback) {
+      reviewAlertBanner.className = "review-alert hidden";
+      return;
+    }
+
+    const isDanger = isFailed;
+    const reqEng = ENGINE_HUMAN_LABELS[m.ocr_requested_engine] || m.ocr_requested_engine || "";
+    const usedEng = ENGINE_HUMAN_LABELS[m.ocr_engine_used] || m.ocr_engine_used || "RapidOCR";
+
+    let title = isDanger ? "本页识别/清洗发生异常" : "高级 OCR 未生效 · 已自动降级保底";
+    let detail = "";
+    if (isDanger) {
+      detail = page.error_msg || "后台识别或清洗失败，请检查模型服务状态后点击重试。";
+    } else if (fallbackReason) {
+      detail = reqEng ? `原选「${reqEng}」未能完成，已回退为「${usedEng}」：${fallbackReason}` : fallbackReason;
+    } else if (flags.includes("ocr_blocked_offline_policy")) {
+      title = "涉密严格离线锁已拦截外部请求";
+      detail = `已拦截至外部 Vision API 的请求，改用本地「${usedEng}」。`;
+    } else {
+      detail = `所选引擎调用失败或超时，已自动回退为「${usedEng}」，因此当前结果可能不如预期准确。`;
+    }
+
+    const actions = el("div", { class: "toolbar-row", style: "gap:6px;margin-top:6px;flex-wrap:wrap;" }, [
+      el("button", {
+        type: "button",
+        class: "btn btn-compact",
+        text: "用当前引擎重识",
+        onclick: () => reocrPageBtn?.click(),
+      }),
+      el("button", {
+        type: "button",
+        class: "btn btn-compact btn-ghost",
+        text: "检查 OCR 设置",
+        onclick: () => callbacks.onOpenSettings?.(),
+      }),
+    ]);
+
+    reviewAlertBanner.className = `review-alert ${isDanger ? "is-danger" : "is-warn"}`;
+    reviewAlertBanner.append(
+      el("strong", { style: "font-size:12.5px;", text: title }),
+      el("div", { style: "font-size:12px;line-height:1.45;margin-top:2px;", text: detail }),
+      actions
+    );
+  }
+
   function clearSelectedPage() {
     const blank = "data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7";
+    stopLoadingTicker();
     selectedPage = null;
     clearBboxHighlight({ clearPin: true });
     setZoomScale(1.0);
@@ -975,6 +1136,14 @@ export function createReviewAndPipelineController(state, callbacks) {
     if (reviewEnginePill) {
       reviewEnginePill.className = "pipe-tag hidden";
       reviewEnginePill.textContent = "";
+    }
+    if (reviewAlertBanner) {
+      reviewAlertBanner.className = "review-alert hidden";
+      reviewAlertBanner.replaceChildren();
+    }
+    if (reviewLoadingPanel) {
+      reviewLoadingPanel.className = "review-loading-panel hidden";
+      reviewLoadingPanel.replaceChildren();
     }
     compareCleanImg.src = blank;
     compareRawImg.src = blank;
@@ -992,6 +1161,7 @@ export function createReviewAndPipelineController(state, callbacks) {
   async function selectPage(pageId) {
     const p = await apiJson(`/api/pages/${pageId}`);
     selectedPage = p;
+    stopLoadingTicker();
     clearBboxHighlight({ clearPin: true });
     setZoomScale(1.0);
     if (compareStage) compareStage.scrollTo(0, 0);
@@ -1005,10 +1175,17 @@ export function createReviewAndPipelineController(state, callbacks) {
     const ts = encodeURIComponent(p.updated_at || Date.now());
     reviewImageTitle.textContent = `第 #${p.seq_no}${p.spread_side !== "S" ? p.spread_side : ""} 页 · ${translateStatus(p.status)}`;
     if (reviewEnginePill) {
-      const eng = formatOcrEngineInfo(p);
-      reviewEnginePill.className = eng.cls;
-      reviewEnginePill.textContent = eng.label;
-      reviewEnginePill.title = eng.title;
+      if (PROCESSING_STATUSES.has(p.status)) {
+        const activeEng = String((p.clean_meta && p.clean_meta.ocr_active_engine) || "");
+        reviewEnginePill.className = "pipe-tag is-proc";
+        reviewEnginePill.textContent = activeEng ? `${ENGINE_HUMAN_LABELS[activeEng] || activeEng} 处理中` : "处理中...";
+        reviewEnginePill.title = "后台正在处理本页";
+      } else {
+        const eng = formatOcrEngineInfo(p);
+        reviewEnginePill.className = eng.cls;
+        reviewEnginePill.textContent = eng.label;
+        reviewEnginePill.title = eng.title;
+      }
     }
 
     const rawUrl = `/api/pages/${p.id}/image/raw?t=${ts}`;
@@ -1016,6 +1193,8 @@ export function createReviewAndPipelineController(state, callbacks) {
     compareRawImg.src = rawUrl;
     compareCleanImg.src = cleanUrl;
     reviewTextEditor.value = p.clean_text || p.ocr_text || "";
+    renderReviewAlertBanner(p);
+    renderLoadingState(p);
     syncReviewTextView();
 
     const confPct = p.ocr_confidence ? `${(p.ocr_confidence * 100).toFixed(1)}%` : "-";
@@ -1057,6 +1236,14 @@ export function createReviewAndPipelineController(state, callbacks) {
 
   function syncReviewTextView() {
     if (!reviewTextEditor || !reviewMdPreview) return;
+    const isProc = Boolean(selectedPage && PROCESSING_STATUSES.has(selectedPage.status));
+    if (isProc) {
+      clearBboxHighlight({ clearPin: true });
+      reviewTextEditor.classList.add("hidden");
+      reviewMdPreview.classList.add("hidden");
+      if (reviewSyncHint) reviewSyncHint.classList.add("hidden");
+      return;
+    }
     const isPreview = reviewTextViewMode === "preview";
     reviewTextEditor.classList.toggle("hidden", isPreview);
     reviewMdPreview.classList.toggle("hidden", !isPreview);
@@ -1294,6 +1481,25 @@ export function createReviewAndPipelineController(state, callbacks) {
       }
     });
   });
+
+  if (reocrPageBtn) {
+    reocrPageBtn.addEventListener("click", async () => {
+      if (!selectedPage) return;
+      await withButtonLoading(reocrPageBtn, "重识排队中...", async () => {
+        try {
+          const updated = await apiJson(`/api/pages/${selectedPage.id}/reclean`, {
+            method: "POST",
+            body: { profile_patch: {}, rerun_ocr: true },
+          });
+          await refreshPageList(updated.id);
+          callbacks.onStatsNeeded?.();
+          showToast("已重新提交给当前 OCR 引擎识字，请稍候...", "ok");
+        } catch (err) {
+          showToast(err.message, "danger");
+        }
+      });
+    });
+  }
 
   const llmCleanPageBtn = document.getElementById("llmCleanPageBtn");
   llmCleanPageBtn.addEventListener("click", async () => {

@@ -4254,3 +4254,92 @@ dialog.dialog-settings {
   font-size: 12px;
   min-width: 0;
 }
+
+/* Live Processing Feedback & Exception/Fallback Banners */
+@keyframes pulseDot {
+  0%, 100% { opacity: 1; transform: scale(1); }
+  50% { opacity: 0.4; transform: scale(0.8); }
+}
+
+@keyframes spinRing {
+  to { transform: rotate(360deg); }
+}
+
+.pill.is-busy .dot {
+  background: var(--warn);
+  animation: pulseDot 1.2s ease-in-out infinite;
+}
+
+.pipe-tag.is-proc,
+.review-card-badge.is-proc {
+  background: var(--warn-tint);
+  color: var(--warn);
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+}
+
+.proc-pulse-dot {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: var(--warn);
+  flex: none;
+  animation: pulseDot 1.1s ease-in-out infinite;
+}
+
+.review-alert {
+  padding: 10px 12px;
+  border-radius: 10px;
+  border: 1px solid var(--border);
+  margin-bottom: 6px;
+  flex: none;
+}
+
+.review-alert.is-warn {
+  background: var(--warn-tint);
+  color: var(--warn);
+}
+
+.review-alert.is-danger {
+  background: var(--danger-tint);
+  color: var(--danger);
+}
+
+.review-loading-panel {
+  flex: 1;
+  min-height: 220px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  text-align: center;
+  gap: 8px;
+  padding: 24px 18px;
+  border-radius: 10px;
+  border: 1px dashed var(--border-strong);
+  background: var(--surface-subtle);
+}
+
+.review-loading-title {
+  font-size: 13.5px;
+  font-weight: 650;
+  color: var(--text);
+}
+
+.loading-spinner {
+  width: 24px;
+  height: 24px;
+  border-radius: 50%;
+  border: 2.5px solid var(--border-strong);
+  border-top-color: var(--primary);
+  animation: spinRing 0.85s linear infinite;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .pill.is-busy .dot,
+  .proc-pulse-dot,
+  .loading-spinner {
+    animation: none;
+  }
+}

@@ -524,7 +524,8 @@
                     <option value="grayscale_crisp">锐利灰度</option>
                     <option value="bw_sauvola">Sauvola 黑白</option>
                   </select>
-                  <button id="recleanPageBtn" type="button" class="btn btn-compact">重洗</button>
+                  <button id="recleanPageBtn" type="button" class="btn btn-compact" title="按所选滤镜重新清洗图像">重洗</button>
+                  <button id="reocrPageBtn" type="button" class="btn btn-compact" title="使用当前 OCR 引擎重新识别本页">重识</button>
                 </div>
               </div>
 
@@ -571,8 +572,10 @@
                   <span id="reviewConfBadge" class="pill">置信度 -</span>
                 </div>
               </div>
+              <div id="reviewAlertBanner" class="review-alert hidden" role="alert"></div>
               <div id="reviewFlagRow" class="review-flag-row hidden"></div>
               <div id="reviewSyncHint" class="review-sync-hint">悬停或点击下方段落/表格行，左侧纸面自动框出原位 · 双击可编辑</div>
+              <div id="reviewLoadingPanel" class="review-loading-panel hidden" aria-live="polite"></div>
               <div id="reviewMdPreview" class="md-preview-box scroller"></div>
               <textarea id="reviewTextEditor" class="input ocr-editor hidden scroller" placeholder="等待 OCR 识别结果..."></textarea>
               <div class="review-actions">
@@ -915,7 +918,9 @@
                 <strong style="font-size:12.5px;">本机硬件体检与离线 OCR 智能推荐</strong>
                 <div class="toolbar-row" style="gap:6px;flex-wrap:wrap;">
                   <label for="ocrOllamaBaseUrlInput" class="muted-note" style="font-size:11.5px;">本机 Ollama 地址</label>
-                  <input id="ocrOllamaBaseUrlInput" class="input mono" style="width:190px;padding:4px 8px;font-size:12px;" type="url" placeholder="http://127.0.0.1:11434" value="http://127.0.0.1:11434">
+                  <input id="ocrOllamaBaseUrlInput" class="input mono" style="width:176px;padding:4px 8px;font-size:12px;" type="url" placeholder="http://127.0.0.1:11434" value="http://127.0.0.1:11434">
+                  <label for="ocrTimeoutInput" class="muted-note" style="font-size:11.5px;">单页超时(秒)</label>
+                  <input id="ocrTimeoutInput" class="input mono" style="width:72px;padding:4px 8px;font-size:12px;" type="number" min="30" max="1200" step="30" value="300" title="无独显笔记本跑本地视觉大模型建议设 300~600 秒">
                   <button id="recheckHwBtn" type="button" class="btn btn-sm">重新检测硬件</button>
                 </div>
               </div>

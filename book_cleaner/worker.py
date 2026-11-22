@@ -8,6 +8,7 @@ import re
 import threading
 import time
 from concurrent.futures import ThreadPoolExecutor
+from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
@@ -29,7 +30,7 @@ from book_cleaner.pipeline.exporter import (
 )
 from book_cleaner.pipeline.image_clean import CleanProfile, clean_page_image, split_double_spread
 from book_cleaner.pipeline.llm_clean import LLMConfig, clean_text_with_llm, should_run_llm
-from book_cleaner.pipeline.ocr_router import SmartOCRRouter
+from book_cleaner.pipeline.ocr_router import OCRSettings, SmartOCRRouter
 from book_cleaner.pipeline.offline_ocr_hub import OfflineOCRHub, is_local_only_url
 from book_cleaner.pipeline.pii_redactor import ConsistentPIIRedactor, parse_custom_redact_terms
 from book_cleaner.pipeline.qa import evaluate_capture_qa
@@ -320,6 +321,11 @@ class PipelineCoordinator:
                 self._clean_wake.wait(timeout=0.4)
                 self._clean_wake.clear()
                 continue
+            for p in batch:
+                self.events.publish(
+                    "page_updated",
+                    {"book_id": p["book_id"], "page_id": p["id"], "status": "CLEANING", "seq_no": p.get("seq_no")},
+                )
             assert self._clean_pool is not None
             futures = [self._clean_pool.submit(self.process_clean_page, p) for p in batch]
             for fut in futures:
@@ -344,6 +350,33 @@ class PipelineCoordinator:
                 self._ocr_wake.wait(timeout=0.4)
                 self._ocr_wake.clear()
                 continue
+            ocr_settings = OCRSettings.from_dict((self.db.get_settings() or {}).get("ocr"))
+            effective_timeout = (
+                max(300.0, ocr_settings.timeout_s)
+                if ocr_settings.engine in ("ollama_glm_ocr", "ollama_qwen25vl_3b", "hybrid_smart")
+                else ocr_settings.timeout_s
+            )
+            started_at = datetime.now(timezone.utc).isoformat().replace("+00:00", "Z")
+            for p in batch:
+                meta = {**(p.get("clean_meta") or {})}
+                meta.pop("ocr_fallback_reason", None)
+                meta["ocr_started_at"] = started_at
+                meta["ocr_active_engine"] = ocr_settings.engine
+                meta["ocr_timeout_s"] = effective_timeout
+                self.db.update_page(int(p["id"]), clean_meta=meta)
+                p["clean_meta"] = meta
+                self.events.publish(
+                    "page_updated",
+                    {
+                        "book_id": p["book_id"],
+                        "page_id": p["id"],
+                        "seq_no": p.get("seq_no"),
+                        "status": "OCR_RUNNING",
+                        "ocr_active_engine": ocr_settings.engine,
+                        "ocr_timeout_s": effective_timeout,
+                        "ocr_started_at": started_at,
+                    },
+                )
             assert self._ocr_pool is not None
             futures = [self._ocr_pool.submit(self.process_ocr_page, p) for p in batch]
             for fut in futures:
@@ -368,6 +401,11 @@ class PipelineCoordinator:
                 self._llm_wake.wait(timeout=0.5)
                 self._llm_wake.clear()
                 continue
+            for p in batch:
+                self.events.publish(
+                    "page_updated",
+                    {"book_id": p["book_id"], "page_id": p["id"], "status": "LLM_RUNNING", "seq_no": p.get("seq_no")},
+                )
             assert self._llm_pool is not None
             futures = [self._llm_pool.submit(self.process_llm_page, p) for p in batch]
             for fut in futures:
@@ -440,7 +478,9 @@ class PipelineCoordinator:
             )
 
             existing_flags = [
-                f for f in (page.get("qa_flags") or []) if f not in ("low_ocr_confidence", "empty_ocr")
+                f
+                for f in (page.get("qa_flags") or [])
+                if f not in ("low_ocr_confidence", "empty_ocr", "ocr_fallback_rapidocr", "ocr_blocked_offline_policy")
             ]
             merged_flags = list(dict.fromkeys([*existing_flags, *ocr_res.flags]))
 
@@ -461,12 +501,22 @@ class PipelineCoordinator:
                 llm_status = "SKIPPED" if llm_cfg.mode != "off" else "OFF"
 
             engine_used = str(getattr(ocr_res, "engine_used", "rapidocr") or "rapidocr")
+            requested_engine = str(getattr(ocr_res, "requested_engine", "") or "")
+            fallback_reason = str(getattr(ocr_res, "fallback_reason", "") or "")
+            elapsed_ms = int(getattr(ocr_res, "elapsed_ms", 0) or 0)
             upgrade_reasons = list(getattr(ocr_res, "upgrade_reasons", []) or [])
-            merged_meta = {
-                **(page.get("clean_meta") or {}),
-                "ocr_engine_used": engine_used,
-                "ocr_upgrade_reasons": upgrade_reasons,
-            }
+            merged_meta = {**(page.get("clean_meta") or {})}
+            merged_meta.pop("ocr_started_at", None)
+            merged_meta.pop("ocr_active_engine", None)
+            merged_meta.update(
+                {
+                    "ocr_engine_used": engine_used,
+                    "ocr_requested_engine": requested_engine,
+                    "ocr_fallback_reason": fallback_reason,
+                    "ocr_elapsed_ms": elapsed_ms,
+                    "ocr_upgrade_reasons": upgrade_reasons,
+                }
+            )
 
             updated = self.db.update_page(
                 page_id,
@@ -490,24 +540,39 @@ class PipelineCoordinator:
                 {
                     "book_id": updated["book_id"],
                     "page_id": page_id,
+                    "seq_no": updated.get("seq_no"),
                     "status": next_status,
                     "ocr_confidence": updated["ocr_confidence"],
                     "ocr_engine_used": engine_used,
+                    "ocr_requested_engine": requested_engine,
+                    "ocr_fallback_reason": fallback_reason,
+                    "ocr_elapsed_ms": elapsed_ms,
                 },
             )
             return updated
         except Exception as exc:
+            err_msg = f"OCR 识别失败: {exc}"
+            cleaned_meta = {**(page.get("clean_meta") or {})}
+            cleaned_meta.pop("ocr_started_at", None)
+            cleaned_meta.pop("ocr_active_engine", None)
             updated = self.db.update_page(
                 page_id,
                 status="FAILED",
-                error_msg=f"OCR 识别失败: {exc}",
+                error_msg=err_msg,
+                clean_meta=cleaned_meta,
                 retry_count=int(page.get("retry_count", 0)) + 1,
                 locked_by="",
                 locked_at="",
             )
             self.events.publish(
                 "page_updated",
-                {"book_id": page["book_id"], "page_id": page_id, "status": "FAILED"},
+                {
+                    "book_id": page["book_id"],
+                    "page_id": page_id,
+                    "seq_no": page.get("seq_no"),
+                    "status": "FAILED",
+                    "error_msg": err_msg,
+                },
             )
             return updated or page
 
@@ -595,19 +660,35 @@ class PipelineCoordinator:
             "profile": profile.to_dict(),
         }
         next_status = "CLEANED" if rerun_ocr else page["status"]
-        updated = self.db.update_page(
-            page_id,
-            clean_path=self.storage.to_rel(paths["clean"]),
-            thumb_path=self.storage.to_rel(paths["thumb"]),
-            clean_meta=merged_meta,
-            status=next_status,
-        )
+        update_kwargs: dict[str, Any] = {
+            "clean_path": self.storage.to_rel(paths["clean"]),
+            "thumb_path": self.storage.to_rel(paths["thumb"]),
+            "clean_meta": merged_meta,
+            "status": next_status,
+        }
+        if rerun_ocr:
+            merged_meta.pop("ocr_fallback_reason", None)
+            merged_meta.pop("ocr_started_at", None)
+            merged_meta.pop("ocr_active_engine", None)
+            cleaned_flags = [
+                f
+                for f in (page.get("qa_flags") or [])
+                if f not in ("ocr_fallback_rapidocr", "ocr_blocked_offline_policy")
+            ]
+            update_kwargs["qa_flags"] = cleaned_flags
+            update_kwargs["error_msg"] = ""
+        updated = self.db.update_page(page_id, **update_kwargs)
         assert updated is not None
         if rerun_ocr:
             self._ocr_wake.set()
         self.events.publish(
             "page_updated",
-            {"book_id": updated["book_id"], "page_id": page_id, "status": updated["status"]},
+            {
+                "book_id": updated["book_id"],
+                "page_id": page_id,
+                "seq_no": updated.get("seq_no"),
+                "status": updated["status"],
+            },
         )
         return updated
 

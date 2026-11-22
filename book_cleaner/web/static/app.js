@@ -370,9 +370,9 @@ async function refreshStats() {
     pipelinePill.className = "pill pill-warn";
     pipelinePillText.textContent = "流水线已暂停";
   } else {
-    pipelinePill.className = "pill pill-ok";
     const activeQ = (b.pending_clean || 0) + (b.pending_ocr || 0) + (b.pending_llm || 0);
-    pipelinePillText.textContent = activeQ > 0 ? `处理中 (${activeQ} 页排队)` : `就绪 (${b.total} 页)`;
+    pipelinePill.className = activeQ > 0 ? "pill pill-warn is-clickable is-busy" : "pill pill-ok is-clickable";
+    pipelinePillText.textContent = activeQ > 0 ? `处理中 (${activeQ} 页)` : `就绪 (${b.total} 页)`;
   }
 }
 
@@ -862,6 +862,8 @@ document.getElementById("openSettingsBtn").addEventListener("click", async () =>
     }
     const ollamaInp = document.getElementById("ocrOllamaBaseUrlInput");
     if (ollamaInp) ollamaInp.value = ocr.ollama_base_url || "http://127.0.0.1:11434";
+    const timeoutInp = document.getElementById("ocrTimeoutInput");
+    if (timeoutInp) timeoutInp.value = String(Math.max(30, Number(ocr.timeout_s || 300)));
 
     document.getElementById("ocrApiBaseUrlInput").value = ocr.api_base_url || "https://api.siliconflow.cn/v1";
     document.getElementById("ocrApiModelInput").value = ocr.api_model || "deepseek-ai/DeepSeek-OCR-2";
@@ -942,6 +944,8 @@ document.querySelectorAll("[data-ocr-route-mode]").forEach((btn) => {
 
 function readOcrForm() {
   const hiddenVal = document.getElementById("ocrEngineValue")?.value;
+  const rawTimeout = Number(document.getElementById("ocrTimeoutInput")?.value || 300);
+  const timeoutS = Number.isFinite(rawTimeout) ? Math.max(30, Math.min(1200, rawTimeout)) : 300;
   return {
     engine: hiddenVal || activeOcrEngine || "rapidocr",
     strict_offline: document.getElementById("ocrStrictOfflineChk")?.checked !== false,
@@ -951,6 +955,7 @@ function readOcrForm() {
     api_key: document.getElementById("ocrApiKeyInput").value.trim(),
     hybrid_conf_threshold: Number(document.getElementById("ocrHybridConfInput").value || 0.85),
     hybrid_upgrade_tables: document.getElementById("ocrHybridTablesChk").checked,
+    timeout_s: timeoutS,
   };
 }
 
@@ -1080,6 +1085,15 @@ document.addEventListener("keydown", (e) => {
 
 // Live SSE Event Stream with debounced UI refresh
 let sseRefreshTimer = null;
+const sseAlertCooldown = new Map();
+function notifyPageAlertOnce(key, message, level) {
+  const now = Date.now();
+  const prev = sseAlertCooldown.get(key) || 0;
+  if (now - prev < 5000) return;
+  sseAlertCooldown.set(key, now);
+  showToast(message, level);
+}
+
 function connectSse() {
   const es = new EventSource("/api/events");
   es.onmessage = (ev) => {
@@ -1089,6 +1103,15 @@ function connectSse() {
       payload = JSON.parse(ev.data);
     } catch {
       return;
+    }
+    if (payload.type === "page_updated" && payload.data) {
+      const d = payload.data;
+      const pageLabel = d.seq_no ? `第 #${d.seq_no} 页` : `页面 #${d.page_id}`;
+      if (d.status === "FAILED" && d.error_msg) {
+        notifyPageAlertOnce(`fail:${d.page_id}`, `${pageLabel} 处理失败：${d.error_msg}`, "danger");
+      } else if (d.ocr_fallback_reason) {
+        notifyPageAlertOnce(`fb:${d.page_id}:${d.ocr_fallback_reason}`, `${pageLabel} OCR 已降级：${d.ocr_fallback_reason}`, "warn");
+      }
     }
     if (payload.type === "ocr_hub_progress" || payload.type === "addon_progress") {
       if (settingsDialog.open) {
@@ -1163,6 +1186,9 @@ async function init() {
     },
     onJumpToTab: (tabKey) => {
       switchTab(tabKey);
+    },
+    onOpenSettings: () => {
+      document.getElementById("openSettingsBtn")?.click();
     },
     onJumpToReview: async (pageId, filterStatus = "ALL") => {
       reviewCtrl.applyReviewFilter(filterStatus);

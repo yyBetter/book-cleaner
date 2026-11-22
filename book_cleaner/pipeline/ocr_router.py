@@ -70,6 +70,54 @@ def build_anchored_vision_prompt(anchor_context: str = "") -> str:
     )
 
 
+_ENGINE_DISPLAY_NAMES: dict[str, str] = {
+    "rapidocr": "RapidOCR 内置离线",
+    "ppocrv5_mobile": "PP-OCRv5 轻量离线",
+    "ppocrv5_server": "PP-OCRv5 高精度离线",
+    "ollama_glm_ocr": "GLM-OCR 0.9B 本地视觉",
+    "ollama_qwen25vl_3b": "Qwen2.5-VL 3B 本地视觉",
+    "deepseek_ocr2_local": "DeepSeek-OCR 2 CUDA 本地",
+    "deepseek_ocr2_api": "Vision API",
+    "hybrid_smart": "离线智能混合",
+}
+
+
+def _engine_label(engine_id: str) -> str:
+    return _ENGINE_DISPLAY_NAMES.get(engine_id, engine_id)
+
+
+def _describe_ocr_exception(
+    exc: Exception,
+    *,
+    engine_label: str,
+    timeout_s: float,
+    endpoint: str = "",
+) -> str:
+    if isinstance(exc, httpx.TimeoutException):
+        return (
+            f"{engine_label} 解析超过 {int(round(timeout_s))} 秒未完成（已超时），"
+            "可在「OCR 设置」调大单页超时秒数或改用更轻量的模型"
+        )
+    if isinstance(exc, httpx.ConnectError):
+        ep = endpoint or "127.0.0.1:11434"
+        return f"无法连接 {engine_label} 服务（{ep}），请确认本机 Ollama 或目标服务已运行"
+    if isinstance(exc, httpx.HTTPStatusError):
+        code = exc.response.status_code if exc.response is not None else 0
+        detail = ""
+        if exc.response is not None:
+            try:
+                body = exc.response.json()
+                detail = str(body.get("error", {}).get("message") if isinstance(body.get("error"), dict) else (body.get("error") or body.get("detail") or "")).strip()
+            except Exception:
+                detail = (exc.response.text or "").strip()[:120]
+        hint = "（请确认模型已在 Ollama 下载完成）" if code == 404 else ""
+        suffix = f"：{detail}" if detail else ""
+        return f"{engine_label} 返回 HTTP {code}{hint}{suffix}"
+    if isinstance(exc, PermissionError):
+        return str(exc)
+    return f"{engine_label} 调用异常：{exc}"
+
+
 @dataclass(slots=True)
 class OCRSettings:
     engine: OCREngineMode = "rapidocr"
@@ -80,7 +128,7 @@ class OCRSettings:
     api_model: str = "deepseek-ai/DeepSeek-OCR-2"
     hybrid_conf_threshold: float = 0.85
     hybrid_upgrade_tables: bool = True
-    timeout_s: float = 60.0
+    timeout_s: float = 300.0
 
     @classmethod
     def from_dict(cls, data: dict[str, Any] | None) -> "OCRSettings":
@@ -92,6 +140,11 @@ class OCRSettings:
         strict_val = data.get("strict_offline", True)
         strict_offline = bool(strict_val) if isinstance(strict_val, bool) else str(strict_val).lower() not in ("0", "false", "no")
         ollama_url = str(data.get("ollama_base_url", "http://127.0.0.1:11434")).strip() or "http://127.0.0.1:11434"
+        try:
+            parsed_timeout = float(data.get("timeout_s", 300.0) or 300.0)
+        except (TypeError, ValueError):
+            parsed_timeout = 300.0
+        clamped_timeout = max(30.0, min(1200.0, parsed_timeout))
         return cls(
             engine=engine,  # type: ignore[arg-type]
             strict_offline=strict_offline,
@@ -102,7 +155,7 @@ class OCRSettings:
             or "deepseek-ai/DeepSeek-OCR-2",
             hybrid_conf_threshold=float(data.get("hybrid_conf_threshold", 0.85)),
             hybrid_upgrade_tables=bool(data.get("hybrid_upgrade_tables", True)),
-            timeout_s=float(data.get("timeout_s", 60.0)),
+            timeout_s=clamped_timeout,
         )
 
 
@@ -139,11 +192,12 @@ def _call_openai_vision_ocr(
     client: httpx.Client | None = None,
     anchor_context: str = "",
     engine_used: str = "deepseek_ocr2_api",
+    max_dim: int = 2200,
 ) -> OCRResult:
     if strict_offline and not is_local_only_url(base_url):
         raise PermissionError("已开启涉密严格离线模式，已拦截外部云端 OCR 请求")
 
-    b64 = _encode_bgr_to_base64_jpeg(bgr)
+    b64 = _encode_bgr_to_base64_jpeg(bgr, max_dim=max_dim)
     prompt_text = build_anchored_vision_prompt(anchor_context)
     url = f"{base_url.rstrip('/')}/chat/completions"
     payload = {
@@ -220,10 +274,11 @@ def recognize_with_ollama_vision(
     *,
     model_name: str,
     base_url: str = "http://127.0.0.1:11434",
-    timeout_s: float = 90.0,
+    timeout_s: float = 300.0,
     client: httpx.Client | None = None,
     anchor_context: str = "",
     engine_used: str = "ollama_glm_ocr",
+    max_dim: int = 1440,
 ) -> OCRResult:
     """Run local Ollama Vision OCR (GLM-OCR 0.9B / Qwen2.5-VL 3B) strictly over loopback."""
     if not is_local_only_url(base_url):
@@ -239,6 +294,7 @@ def recognize_with_ollama_vision(
         client=client,
         anchor_context=anchor_context,
         engine_used=engine_used,
+        max_dim=max_dim,
     )
 
 
@@ -436,44 +492,69 @@ class SmartOCRRouter:
         return res
 
     def _get_anchor_pass(
-        self, bgr: np.ndarray, *, low_conf_threshold: float
+        self,
+        bgr: np.ndarray,
+        *,
+        low_conf_threshold: float,
+        max_blocks: int = 80,
+        max_chars: int = 3200,
     ) -> tuple[OCRResult | None, str]:
         try:
             anchor_res = self._run_best_fast_onnx(bgr, low_conf_threshold=low_conf_threshold)
-            return anchor_res, build_coordinate_anchor_text(anchor_res.blocks)
+            return anchor_res, build_coordinate_anchor_text(
+                anchor_res.blocks,
+                max_blocks=max_blocks,
+                max_chars=max_chars,
+            )
         except Exception:
             return None, ""
 
-    def _try_vision_upgrade(
+    def _try_vision_upgrade_detailed(
         self,
         bgr: np.ndarray,
         cfg: OCRSettings,
         *,
         anchor_context: str = "",
-    ) -> OCRResult | None:
+    ) -> tuple[OCRResult | None, str]:
+        errors: list[str] = []
         # 1. Local DeepSeek-OCR 2 CUDA add-on
         if self.addon_manager is not None and self.addon_manager.is_installed():
             try:
-                return self._run_deepseek_local(bgr)
-            except Exception:
-                pass
+                return self._run_deepseek_local(bgr), ""
+            except Exception as exc:
+                errors.append(
+                    _describe_ocr_exception(
+                        exc,
+                        engine_label=_engine_label("deepseek_ocr2_local"),
+                        timeout_s=max(300.0, cfg.timeout_s),
+                    )
+                )
         # 2. Local Ollama compact vision OCR (GLM-OCR 0.9B > Qwen2.5-VL 3B)
         if self.offline_hub is not None and is_local_only_url(cfg.ollama_base_url):
+            ollama_timeout = max(300.0, cfg.timeout_s)
             for mid in ("ollama_glm_ocr", "ollama_qwen25vl_3b"):
                 cat = _CATALOG_BY_ID.get(mid)
                 if cat and self.offline_hub.is_model_installed(mid):
                     try:
-                        return recognize_with_ollama_vision(
+                        res = recognize_with_ollama_vision(
                             bgr,
                             model_name=str(cat["ollama_model"]),
                             base_url=cfg.ollama_base_url,
-                            timeout_s=max(60.0, cfg.timeout_s),
+                            timeout_s=ollama_timeout,
                             client=self.api_client,
-                            anchor_context=anchor_context,
+                            anchor_context=anchor_context[:1200],
                             engine_used=mid,
                         )
-                    except Exception:
-                        pass
+                        return res, ""
+                    except Exception as exc:
+                        errors.append(
+                            _describe_ocr_exception(
+                                exc,
+                                engine_label=_engine_label(mid),
+                                timeout_s=ollama_timeout,
+                                endpoint=cfg.ollama_base_url,
+                            )
+                        )
         # 3. Vision API (ONLY when strict_offline=False OR URL is strictly local loopback)
         if cfg.api_base_url and (not cfg.strict_offline or is_local_only_url(cfg.api_base_url)):
             if cfg.api_key or is_local_only_url(cfg.api_base_url):
@@ -483,10 +564,34 @@ class SmartOCRRouter:
                         cfg,
                         client=self.api_client,
                         anchor_context=anchor_context,
+                    ), ""
+                except Exception as exc:
+                    errors.append(
+                        _describe_ocr_exception(
+                            exc,
+                            engine_label=_engine_label("deepseek_ocr2_api"),
+                            timeout_s=cfg.timeout_s,
+                            endpoint=cfg.api_base_url,
+                        )
                     )
-                except Exception:
-                    pass
-        return None
+        return None, (errors[-1] if errors else "")
+
+    def _try_vision_upgrade(
+        self,
+        bgr: np.ndarray,
+        cfg: OCRSettings,
+        *,
+        anchor_context: str = "",
+    ) -> OCRResult | None:
+        res, _ = self._try_vision_upgrade_detailed(bgr, cfg, anchor_context=anchor_context)
+        return res
+
+    def _finalize_result(self, res: OCRResult, *, requested_engine: str, t0: float, fallback_reason: str = "") -> OCRResult:
+        res.requested_engine = requested_engine
+        if fallback_reason and not res.fallback_reason:
+            res.fallback_reason = fallback_reason
+        res.elapsed_ms = int((time.perf_counter() - t0) * 1000)
+        return res
 
     def recognize(
         self,
@@ -495,72 +600,106 @@ class SmartOCRRouter:
         low_conf_threshold: float = 0.82,
         extra_range_alerts: list[str] | None = None,
     ) -> OCRResult:
+        t0 = time.perf_counter()
         settings = self.db.get_settings() if self.db is not None else {}
         cfg = OCRSettings.from_dict(settings.get("ocr"))
 
         if cfg.engine == "rapidocr":
             res = self.rapid_engine.recognize(bgr, low_conf_threshold=low_conf_threshold)
             res.engine_used = "rapidocr"
-            return res
+            return self._finalize_result(res, requested_engine=cfg.engine, t0=t0)
 
         if cfg.engine in ("ppocrv5_mobile", "ppocrv5_server"):
+            err_reason = f"{_engine_label(cfg.engine)} 模型尚未下载安装，已自动回退到 RapidOCR"
             if self.offline_hub is not None:
                 eng = self.offline_hub.get_onnx_engine(cfg.engine)
                 if eng is not None:
                     try:
                         res = eng.recognize(bgr, low_conf_threshold=low_conf_threshold)
                         res.engine_used = cfg.engine
-                        return res
-                    except Exception:
-                        pass
+                        return self._finalize_result(res, requested_engine=cfg.engine, t0=t0)
+                    except Exception as exc:
+                        err_reason = _describe_ocr_exception(
+                            exc,
+                            engine_label=_engine_label(cfg.engine),
+                            timeout_s=cfg.timeout_s,
+                        )
             fallback = self.rapid_engine.recognize(bgr, low_conf_threshold=low_conf_threshold)
             fallback.engine_used = "rapidocr"
             if "ocr_fallback_rapidocr" not in fallback.flags:
                 fallback.flags.append("ocr_fallback_rapidocr")
-            return fallback
+            return self._finalize_result(fallback, requested_engine=cfg.engine, t0=t0, fallback_reason=err_reason)
 
         if cfg.engine in ("ollama_glm_ocr", "ollama_qwen25vl_3b"):
             cat = _CATALOG_BY_ID.get(cfg.engine)
-            if cat and is_local_only_url(cfg.ollama_base_url):
-                anchor_res, anchor_ctx = self._get_anchor_pass(bgr, low_conf_threshold=low_conf_threshold)
+            ollama_timeout = max(300.0, cfg.timeout_s)
+            if not is_local_only_url(cfg.ollama_base_url):
+                err_reason = "本机 Ollama 地址必须是 127.0.0.1 / localhost，已自动回退本地快速 OCR"
+            elif cat is None:
+                err_reason = f"未找到模型配置：{cfg.engine}，已回退本地快速 OCR"
+            else:
+                anchor_res, anchor_ctx = self._get_anchor_pass(
+                    bgr,
+                    low_conf_threshold=low_conf_threshold,
+                    max_blocks=40,
+                    max_chars=1200,
+                )
                 try:
                     res = recognize_with_ollama_vision(
                         bgr,
                         model_name=str(cat["ollama_model"]),
                         base_url=cfg.ollama_base_url,
-                        timeout_s=max(60.0, cfg.timeout_s),
+                        timeout_s=ollama_timeout,
                         client=self.api_client,
                         anchor_context=anchor_ctx,
                         engine_used=cfg.engine,
                     )
                     if not res.blocks and anchor_res is not None and anchor_res.blocks:
                         res.blocks = anchor_res.blocks
-                    return res
-                except Exception:
-                    pass
+                    return self._finalize_result(res, requested_engine=cfg.engine, t0=t0)
+                except Exception as exc:
+                    err_reason = _describe_ocr_exception(
+                        exc,
+                        engine_label=_engine_label(cfg.engine),
+                        timeout_s=ollama_timeout,
+                        endpoint=cfg.ollama_base_url,
+                    )
             fallback = self._run_best_fast_onnx(bgr, low_conf_threshold=low_conf_threshold)
             if "ocr_fallback_rapidocr" not in fallback.flags:
                 fallback.flags.append("ocr_fallback_rapidocr")
-            return fallback
+            return self._finalize_result(fallback, requested_engine=cfg.engine, t0=t0, fallback_reason=err_reason)
 
         if cfg.engine == "deepseek_ocr2_local":
+            err_reason = "DeepSeek-OCR 2 本地 CUDA 扩展尚未安装，已回退本地快速 OCR"
             if self.addon_manager is not None and self.addon_manager.is_installed():
                 try:
-                    return self._run_deepseek_local(bgr)
-                except Exception:
-                    pass
+                    res = self._run_deepseek_local(bgr)
+                    return self._finalize_result(res, requested_engine=cfg.engine, t0=t0)
+                except Exception as exc:
+                    err_reason = _describe_ocr_exception(
+                        exc,
+                        engine_label=_engine_label("deepseek_ocr2_local"),
+                        timeout_s=max(300.0, cfg.timeout_s),
+                    )
             fallback = self._run_best_fast_onnx(bgr, low_conf_threshold=low_conf_threshold)
             if "ocr_fallback_rapidocr" not in fallback.flags:
                 fallback.flags.append("ocr_fallback_rapidocr")
-            return fallback
+            return self._finalize_result(fallback, requested_engine=cfg.engine, t0=t0, fallback_reason=err_reason)
 
         if cfg.engine == "deepseek_ocr2_api":
             if cfg.strict_offline and not is_local_only_url(cfg.api_base_url):
                 fallback = self._run_best_fast_onnx(bgr, low_conf_threshold=low_conf_threshold)
                 if "ocr_blocked_offline_policy" not in fallback.flags:
                     fallback.flags.append("ocr_blocked_offline_policy")
-                return fallback
-            if cfg.api_base_url and (cfg.api_key or is_local_only_url(cfg.api_base_url)):
+                return self._finalize_result(
+                    fallback,
+                    requested_engine=cfg.engine,
+                    t0=t0,
+                    fallback_reason="已开启「涉密严格离线锁」，已拦截发往外部云端 Vision API 的请求并改用本地 OCR",
+                )
+            if not cfg.api_base_url or (not cfg.api_key and not is_local_only_url(cfg.api_base_url)):
+                err_reason = "未配置 Vision API 地址或 API Key，已改用本地快速 OCR"
+            else:
                 anchor_res, anchor_ctx = self._get_anchor_pass(bgr, low_conf_threshold=low_conf_threshold)
                 try:
                     res = recognize_with_deepseek_api(
@@ -571,13 +710,18 @@ class SmartOCRRouter:
                     )
                     if not res.blocks and anchor_res is not None and anchor_res.blocks:
                         res.blocks = anchor_res.blocks
-                    return res
-                except Exception:
-                    pass
+                    return self._finalize_result(res, requested_engine=cfg.engine, t0=t0)
+                except Exception as exc:
+                    err_reason = _describe_ocr_exception(
+                        exc,
+                        engine_label=_engine_label("deepseek_ocr2_api"),
+                        timeout_s=cfg.timeout_s,
+                        endpoint=cfg.api_base_url,
+                    )
             fallback = self._run_best_fast_onnx(bgr, low_conf_threshold=low_conf_threshold)
             if "ocr_fallback_rapidocr" not in fallback.flags:
                 fallback.flags.append("ocr_fallback_rapidocr")
-            return fallback
+            return self._finalize_result(fallback, requested_engine=cfg.engine, t0=t0, fallback_reason=err_reason)
 
         # hybrid_smart: best local ONNX first, upgrade when triggers fire to VLM with Document Anchoring
         fast_res = self._run_best_fast_onnx(bgr, low_conf_threshold=low_conf_threshold)
@@ -588,11 +732,15 @@ class SmartOCRRouter:
         )
         if reasons:
             anchor_ctx = build_coordinate_anchor_text(fast_res.blocks)
-            upgraded = self._try_vision_upgrade(bgr, cfg, anchor_context=anchor_ctx)
+            upgraded, upgrade_err = self._try_vision_upgrade_detailed(bgr, cfg, anchor_context=anchor_ctx)
             if upgraded is not None and upgraded.formatted_text.strip():
                 if not upgraded.blocks and fast_res.blocks:
                     upgraded.blocks = fast_res.blocks
                 upgraded.upgrade_reasons = reasons
-                return upgraded
+                return self._finalize_result(upgraded, requested_engine=cfg.engine, t0=t0)
             fast_res.upgrade_reasons = reasons
-        return fast_res
+            if upgrade_err:
+                fast_res.fallback_reason = upgrade_err
+                if "ocr_fallback_rapidocr" not in fast_res.flags:
+                    fast_res.flags.append("ocr_fallback_rapidocr")
+        return self._finalize_result(fast_res, requested_engine=cfg.engine, t0=t0)

@@ -45,7 +45,7 @@ DEFAULT_SETTINGS: dict[str, Any] = {
         "api_model": "deepseek-ai/DeepSeek-OCR-2",
         "hybrid_conf_threshold": 0.85,
         "hybrid_upgrade_tables": True,
-        "timeout_s": 60.0,
+        "timeout_s": 300.0,
     },
     "llm": {
         "mode": "off",

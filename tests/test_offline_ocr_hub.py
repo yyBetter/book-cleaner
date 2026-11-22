@@ -6,6 +6,7 @@ import json
 import threading
 import time
 
+import cv2
 import httpx
 import numpy as np
 import pytest
@@ -13,10 +14,10 @@ from fastapi.testclient import TestClient
 
 from book_cleaner.api import create_app
 from book_cleaner.config import AppConfig
-from book_cleaner.db import Database
+from book_cleaner.db import DEFAULT_SETTINGS, Database
 from book_cleaner.pipeline.deepseek_addon import DeepSeekAddonManager
 from book_cleaner.pipeline.ocr_engine import OCRBlock, OCRResult, RapidOCREngine
-from book_cleaner.pipeline.ocr_router import SmartOCRRouter
+from book_cleaner.pipeline.ocr_router import OCRSettings, SmartOCRRouter
 from book_cleaner.pipeline.offline_ocr_hub import (
     OfflineOCRHub,
     evaluate_catalog,
@@ -24,6 +25,8 @@ from book_cleaner.pipeline.offline_ocr_hub import (
     is_local_only_url,
     probe_ollama_local,
 )
+from book_cleaner.storage import ShardedStorage
+from book_cleaner.worker import PipelineCoordinator
 
 
 def test_host_hardware_matrix_and_recommendations(tmp_path):
@@ -503,3 +506,84 @@ def test_local_ollama_bypasses_env_proxy_and_static_no_cache(tmp_path, monkeypat
         r_js = client.get("/static/api.js")
         assert r_js.status_code == 200
         assert r_js.headers.get("cache-control") == "no-cache"
+
+
+def test_ollama_timeout_floor_and_fallback_reason_lifecycle(tmp_path):
+    assert float(DEFAULT_SETTINGS["ocr"]["timeout_s"]) == 300.0
+    assert OCRSettings().timeout_s == 300.0
+
+    cfg = AppConfig(data_dir=tmp_path / "fallback_data")
+    cfg.ensure_dirs()
+    db = Database(cfg.db_path)
+    storage = ShardedStorage(cfg.storage_dir)
+    try:
+        # Simulate legacy 60s timeout stored in DB + Ollama Qwen2.5-VL 3B selected
+        db.update_settings(
+            {
+                "ocr": {
+                    "engine": "ollama_qwen25vl_3b",
+                    "strict_offline": True,
+                    "ollama_base_url": "http://127.0.0.1:11434",
+                    "timeout_s": 60.0,
+                }
+            }
+        )
+
+        observed_timeouts: list[float] = []
+
+        class _TimeoutClient:
+            def post(self, url, json=None, headers=None, timeout=None):
+                observed_timeouts.append(float(timeout or 0.0))
+                raise httpx.ReadTimeout("timed out reading stream")
+
+        class _ConnectErrClient:
+            def post(self, url, json=None, headers=None, timeout=None):
+                observed_timeouts.append(float(timeout or 0.0))
+                raise httpx.ConnectError("connection refused")
+
+        class _OkRapid:
+            def recognize(self, bgr, *, low_conf_threshold=0.82):
+                blk = OCRBlock(bbox=[[10, 10], [80, 10], [80, 30], [10, 30]], text="保底正文", confidence=0.91)
+                return OCRResult(blocks=[blk], raw_text="保底正文", formatted_text="保底正文", avg_confidence=0.91, min_confidence=0.91)
+
+        router = SmartOCRRouter(
+            db,
+            addon_manager=None,
+            rapid_engine=_OkRapid(),  # type: ignore[arg-type]
+            api_client=_TimeoutClient(),  # type: ignore[arg-type]
+        )
+        coord = PipelineCoordinator(cfg, db, storage, ocr_engine=router)
+
+        img = np.full((240, 320, 3), 245, dtype=np.uint8)
+        ok, enc = cv2.imencode(".jpg", img)
+        assert ok
+        book_id = db.ensure_default_book()["id"]
+        cap = coord.ingest_image_bytes(book_id=book_id, raw_bytes=enc.tobytes(), source_type="upload", source_ref="qwen.jpg")
+        page = cap["pages"][0]
+        coord.process_clean_page(page)
+        cleaned = db.get_page(page["id"])
+        assert cleaned is not None
+
+        # 1. ReadTimeout: timeout_s must enforce >= 300s floor & persist Chinese fallback reason
+        after_timeout = coord.process_ocr_page(cleaned)
+        assert observed_timeouts and observed_timeouts[-1] >= 300.0
+        assert "ocr_fallback_rapidocr" in (after_timeout.get("qa_flags") or [])
+        meta1 = after_timeout.get("clean_meta") or {}
+        assert meta1.get("ocr_requested_engine") == "ollama_qwen25vl_3b"
+        assert meta1.get("ocr_engine_used") == "rapidocr"
+        assert "超过 300 秒" in str(meta1.get("ocr_fallback_reason") or "")
+
+        # 2. ConnectError: clear Chinese connection message persisted
+        router.api_client = _ConnectErrClient()  # type: ignore[assignment]
+        after_conn = coord.process_ocr_page(after_timeout)
+        meta2 = after_conn.get("clean_meta") or {}
+        assert "无法连接" in str(meta2.get("ocr_fallback_reason") or "")
+        assert "127.0.0.1:11434" in str(meta2.get("ocr_fallback_reason") or "")
+
+        # 3. Re-OCR queue (`reclean_page(..., rerun_ocr=True)`) clears stale fallback reason & flags
+        requeued = coord.reclean_page(after_conn["id"], profile_patch={}, rerun_ocr=True)
+        assert requeued["status"] == "CLEANED"
+        assert "ocr_fallback_rapidocr" not in (requeued.get("qa_flags") or [])
+        assert "ocr_fallback_reason" not in (requeued.get("clean_meta") or {})
+    finally:
+        db.close()

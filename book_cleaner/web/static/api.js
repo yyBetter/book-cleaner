@@ -279,7 +279,7 @@ export function playBeep(kind = "ok") {
   }
 }
 
-export function showToast(message, level = "ok") {
+export function showToast(message, level = "ok", durationMs = level === "ok" ? 3600 : 5600) {
   const stack = document.getElementById("toastStack");
   if (!stack) return;
   const node = el("div", { class: `toast is-${level}` }, [
@@ -287,7 +287,7 @@ export function showToast(message, level = "ok") {
     el("span", { text: message }),
   ]);
   stack.appendChild(node);
-  setTimeout(() => node.remove(), 3600);
+  setTimeout(() => node.remove(), durationMs);
 }
 
 const FLAG_LABELS = {
@@ -297,6 +297,8 @@ const FLAG_LABELS = {
   duplicate_page: "疑似重复页",
   low_ocr_confidence: "OCR置信度偏低",
   empty_ocr: "未识别出文字",
+  ocr_fallback_rapidocr: "引擎异常·已降级保底",
+  ocr_blocked_offline_policy: "涉密离线锁已拦截",
 };
 
 export function translateFlag(flag) {

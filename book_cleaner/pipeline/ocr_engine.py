@@ -70,6 +70,9 @@ class OCRResult:
     flags: list[str] = field(default_factory=list)
     engine_used: str = "rapidocr"
     upgrade_reasons: list[str] = field(default_factory=list)
+    requested_engine: str = ""
+    fallback_reason: str = ""
+    elapsed_ms: int = 0
 
     def to_dict(self) -> dict[str, Any]:
         return {
@@ -81,6 +84,9 @@ class OCRResult:
             "flags": list(self.flags),
             "engine_used": self.engine_used,
             "upgrade_reasons": list(self.upgrade_reasons),
+            "requested_engine": self.requested_engine,
+            "fallback_reason": self.fallback_reason,
+            "elapsed_ms": int(self.elapsed_ms),
         }
 
 
