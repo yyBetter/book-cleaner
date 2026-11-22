@@ -374,7 +374,11 @@ export function renderSafeMarkdown(text) {
         );
         i += 1;
       }
-      frag.appendChild(el("table", { class: "md-table" }, [thead, el("tbody", {}, tbodyRows)]));
+      frag.appendChild(
+        el("div", { class: "md-table-scroll" }, [
+          el("table", { class: "md-table" }, [thead, el("tbody", {}, tbodyRows)]),
+        ])
+      );
       continue;
     }
 

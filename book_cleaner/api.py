@@ -78,6 +78,11 @@ class RecleanRequest(BaseModel):
     rerun_ocr: bool = False
 
 
+class RotatePageRequest(BaseModel):
+    delta_deg: int = Field(default=90)
+    rerun_ocr: bool = True
+
+
 class ImportFolderRequest(BaseModel):
     folder_path: str
     recursive: bool = True
@@ -447,6 +452,7 @@ def create_app(
         dewarp: str | None = Form(None),
         remove_fingers: str | None = Form(None),
         deskew: str | None = Form(None),
+        auto_rotate: str | None = Form(None),
         denoise: str | None = Form(None),
         enhance_mode: str | None = Form(None),
     ) -> dict[str, Any]:
@@ -463,6 +469,7 @@ def create_app(
             ("dewarp", dewarp),
             ("remove_fingers", remove_fingers),
             ("deskew", deskew),
+            ("auto_rotate", auto_rotate),
             ("denoise", denoise),
         ):
             if val is not None and val != "":
@@ -640,6 +647,17 @@ def create_app(
             )
         except KeyError as exc:
             raise HTTPException(status_code=404, detail=str(exc)) from exc
+
+    @app.post("/api/pages/{page_id}/rotate")
+    def rotate_page(page_id: int, body: RotatePageRequest) -> dict[str, Any]:
+        try:
+            return coordinator.rotate_page(
+                page_id, delta_deg=body.delta_deg, rerun_ocr=body.rerun_ocr
+            )
+        except KeyError as exc:
+            raise HTTPException(status_code=404, detail=str(exc)) from exc
+        except ValueError as exc:
+            raise HTTPException(status_code=400, detail=str(exc)) from exc
 
     @app.post("/api/pages/{page_id}/llm-clean")
     def llm_clean_page(page_id: int) -> dict[str, Any]:

@@ -371,6 +371,7 @@
                 <label class="toggle-row"><span>智能切边矫正</span><input id="optAutoCrop" class="toggle-switch" type="checkbox" checked></label>
                 <label class="toggle-row"><span>弯曲展平</span><input id="optDewarp" class="toggle-switch" type="checkbox" checked></label>
                 <label class="toggle-row"><span>手指擦除</span><input id="optRemoveFingers" class="toggle-switch" type="checkbox" checked></label>
+                <label class="toggle-row"><span>文字朝向自动转正 (90°/180°)</span><input id="optAutoRotate" class="toggle-switch" type="checkbox" checked></label>
                 <label class="toggle-row"><span>自动纠偏</span><input id="optDeskew" class="toggle-switch" type="checkbox" checked></label>
                 <label class="toggle-row"><span>去噪漂白</span><input id="optDenoise" class="toggle-switch" type="checkbox" checked></label>
               </div>
@@ -459,7 +460,7 @@
               <div class="pipe-list-toolbar">
                 <div class="toolbar-row">
                   <strong style="font-size:13px;">每张照片的加工实况</strong>
-                  <span class="muted-note">点击任意照片，右侧放大对比原图与洗净成片</span>
+                  <span class="muted-note">点击照片，右侧查看原图与离线识别内容</span>
                 </div>
                 <div class="toolbar-row">
                   <div class="filter-pills">
@@ -475,18 +476,23 @@
               <div id="pipelinePagesList" class="pipe-list scroller"></div>
             </div>
 
-            <!-- Right: Docked Visual X-Ray Inspector (Raw vs Clean + 4-Step Breakdown + OCR Snippet) -->
-            <aside class="pipe-xray-col scroller">
-              <div class="toolbar-between" style="gap:8px;">
-                <strong id="pipeXrayTitle" style="font-size:14px;">请点击左侧照片查看加工详情</strong>
-                <div class="toolbar-row" style="gap:6px;">
+            <!-- Right: Docked Visual X-Ray Inspector (Raw vs Clean + Merged Summary + Hero OCR Output) -->
+            <aside id="pipeXrayCol" class="pipe-xray-col">
+              <div class="pipe-xray-head">
+                <div class="toolbar-row" style="gap:8px;min-width:0;flex-wrap:wrap;">
+                  <strong id="pipeXrayTitle" style="font-size:14px;">请点击左侧照片查看加工详情</strong>
+                  <span id="pipeXrayVerdictPill" class="pipe-tag hidden"></span>
+                </div>
+                <div class="toolbar-row" style="gap:6px;flex:none;">
+                  <button id="pipeXrayRotLeftBtn" type="button" class="btn btn-compact" title="逆时针旋转 90° 并重新识字" disabled>左转</button>
+                  <button id="pipeXrayRotRightBtn" type="button" class="btn btn-compact" title="顺时针旋转 90° 并重新识字" disabled>右转</button>
                   <button id="pipeXrayApproveBtn" type="button" class="btn btn-compact btn-primary" disabled>直接通过</button>
                   <button id="pipeXrayJumpBtn" type="button" class="btn btn-compact" disabled>精校对比</button>
                   <button id="pipeXrayDeleteBtn" type="button" class="btn btn-compact btn-danger-ghost" disabled>删废片</button>
                 </div>
               </div>
 
-              <div class="pipe-xray-compare">
+              <div id="pipeXrayCompare" class="pipe-xray-compare">
                 <div class="pipe-xray-frame">
                   <div class="pipe-xray-frame-lbl">原图 (Raw)</div>
                   <img id="pipeXrayRawImg" src="data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7" alt="原始拍照图">
@@ -497,8 +503,8 @@
                 </div>
               </div>
 
-              <div id="pipeXrayTimeline" class="pipe-timeline">
-                <div class="pack-empty-state">左侧选择任意一页照片后，此处会对比展示「原图 vs 清洗成片」并逐项列出切边、展平、去阴影与识别出来的正文片段。</div>
+              <div id="pipeXrayTimeline" class="pipe-xray-body">
+                <div class="pack-empty-state">左侧选择任意一页照片后，此处将对比展示「原图 vs 洗净成片」，并将重点空间留给完整离线文字识别输出。</div>
               </div>
             </aside>
           </div>
@@ -560,6 +566,8 @@
                     <option value="bw_sauvola">Sauvola 黑白</option>
                   </select>
                   <button id="recleanPageBtn" type="button" class="btn btn-sm">重洗此页</button>
+                  <button id="reviewRotLeftBtn" type="button" class="btn btn-sm" title="逆时针旋转 90° 并重新识字">左转 90°</button>
+                  <button id="reviewRotRightBtn" type="button" class="btn btn-sm" title="顺时针旋转 90° 并重新识字">右转 90°</button>
                   <button id="zoomToggleBtn" type="button" class="btn btn-sm">放大细节</button>
                 </div>
               </div>

@@ -410,6 +410,115 @@ def reformat_page_from_blocks(page: dict[str, Any]) -> str | None:
     return format_ocr_blocks(blocks, img_height=img_h, img_width=img_w)
 
 
+_SHARED_ORIENT_LOCK = threading.Lock()
+_SHARED_ORIENT_ENGINE: "RapidOCREngine | None" = None
+
+
+def _get_shared_orient_engine() -> "RapidOCREngine":
+    global _SHARED_ORIENT_ENGINE
+    if _SHARED_ORIENT_ENGINE is None:
+        with _SHARED_ORIENT_LOCK:
+            if _SHARED_ORIENT_ENGINE is None:
+                _SHARED_ORIENT_ENGINE = RapidOCREngine()
+    return _SHARED_ORIENT_ENGINE
+
+
+def detect_text_orientation_90(bgr: np.ndarray) -> int:
+    """Detect clockwise rotation (0, 90, 180, or 270 deg) needed to make page text upright."""
+    if bgr is None or bgr.size == 0:
+        return 0
+    h, w = bgr.shape[:2]
+    if min(h, w) < 80:
+        return 0
+
+    try:
+        import cv2
+
+        scale = min(1.0, 960.0 / float(max(h, w)))
+        small = (
+            cv2.resize(
+                bgr,
+                (max(1, int(round(w * scale))), max(1, int(round(h * scale)))),
+                interpolation=cv2.INTER_AREA,
+            )
+            if scale < 1.0
+            else bgr
+        )
+
+        wrapper = _get_shared_orient_engine()
+        with wrapper._infer_lock:
+            engine = wrapper._ensure_engine()
+            dt_boxes, _ = engine.text_det(small)
+            if dt_boxes is None or len(dt_boxes) == 0:
+                return 0
+
+            horiz_score = 0.0
+            vert_score = 0.0
+            for box in dt_boxes:
+                xs = [float(pt[0]) for pt in box]
+                ys = [float(pt[1]) for pt in box]
+                bw = max(xs) - min(xs)
+                bh = max(ys) - min(ys)
+                if bw > bh * 1.25:
+                    horiz_score += bw
+                elif bh > bw * 1.25:
+                    vert_score += bh
+
+            pre_rot = 0
+            work = small
+            if vert_score > horiz_score * 1.25:
+                pre_rot = 90
+                work = cv2.rotate(small, cv2.ROTATE_90_CLOCKWISE)
+                dt_boxes, _ = engine.text_det(work)
+                if dt_boxes is None or len(dt_boxes) == 0:
+                    return pre_rot
+
+            wh, ww = work.shape[:2]
+            ranked = sorted(
+                dt_boxes,
+                key=lambda b: max(float(pt[0]) for pt in b) - min(float(pt[0]) for pt in b),
+                reverse=True,
+            )
+            crops: list[np.ndarray] = []
+            crop_weights: list[float] = []
+            for box in ranked:
+                xs = [int(round(float(pt[0]))) for pt in box]
+                ys = [int(round(float(pt[1]))) for pt in box]
+                x0 = max(0, min(xs) - 2)
+                x1 = min(ww, max(xs) + 2)
+                y0 = max(0, min(ys) - 2)
+                y1 = min(wh, max(ys) + 2)
+                bw = x1 - x0
+                bh = y1 - y0
+                if bw > bh * 1.15 and bw >= 24 and bh >= 8:
+                    crops.append(work[y0:y1, x0:x1])
+                    crop_weights.append(float(bw))
+                    if len(crops) >= 12:
+                        break
+
+            if not crops:
+                return pre_rot
+            _, cls_res, _ = engine.text_cls(crops)
+
+        votes_0 = 0.0
+        votes_180 = 0.0
+        for (lbl, score), weight in zip(cls_res or [], crop_weights):
+            conf = float(score)
+            if conf < 0.65:
+                continue
+            weighted = conf * weight
+            if str(lbl) == "180":
+                votes_180 += weighted
+            elif str(lbl) == "0":
+                votes_0 += weighted
+
+        if pre_rot == 0:
+            return 180 if (votes_180 > votes_0 * 1.25 and votes_180 > 0.0) else 0
+        return 270 if votes_180 > votes_0 else 90
+    except Exception:
+        return 0
+
+
 class RapidOCREngine:
     """Thread-safe lazy singleton wrapper around offline RapidOCR (ONNX Runtime)."""
 

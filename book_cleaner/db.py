@@ -32,6 +32,7 @@ DEFAULT_CLEAN_PROFILE: dict[str, Any] = {
     "enhance_mode": "clean_color",
     "denoise": True,
     "deskew": True,
+    "auto_rotate": True,
 }
 
 DEFAULT_SETTINGS: dict[str, Any] = {
