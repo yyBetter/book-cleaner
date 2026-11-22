@@ -1,6 +1,6 @@
-# 超级扫描仪 · Book Cleaner（纸质书籍光学采集与清洗工坊）
+# 超级扫描仪 · SuperScanner（本地离线纸质资料与多表批次数字化工作台）
 
-> **一台电脑 + 外接高拍仪/摄像头（或 Android 手机），跑通十万页级「采集质检 ➔ 流水线图像净化与离线 OCR ➔ 对比抽检复核 ➔ 数据清洗与自定义表头映射 ➔ 多 Sheet Excel (.xlsx) / PDF / Markdown / EPUB 导出」五步闭环。**
+> **一台电脑 + 外接高拍仪/摄像头（或 Android 手机），跑通十万页级「1 拍照 ➔ 2 进度 ➔ 3 复核 ➔ 4 表格 ➔ 5 导出」五步闭环。100% 本地离线运行 + Ed25519 纯离线机器码授权，内置三大商业多表模板包，导出多 Sheet Excel (.xlsx) / CatBoost 特征宽表 / 可搜索 PDF / Markdown / EPUB 3 / RAG JSONL。**
 
 ## 核心特性
 
@@ -81,14 +81,21 @@ uv run --no-sync book-cleaner serve --host 0.0.0.0 --port 8765 --auto-https
 
 ---
 
-## 跨电脑迁移与打包
+## 商业发版、打包与离线授权指南
 
 - **打包干净源码发给 Windows 电脑（约 1 MB，自动排除 Mac 虚拟环境与数据）**：
   ```bash
   bash scripts/pack_for_windows.sh
   ```
-- **在 Windows 上打免安装离线 `.exe` 文件夹**（仅含轻量 `RapidOCR`，DeepSeek-OCR 2 仍保持按需检测下载）：
-  双击运行 [scripts/build_windows_exe.bat](scripts/build_windows_exe.bat)，详见 [docs/desktop-app-packaging.md](docs/desktop-app-packaging.md)。
+- **一键构建 Windows 免配置托盘便携包与安装程序**：
+  ```powershell
+  powershell -ExecutionPolicy Bypass -File scripts\build_windows_release.ps1 -Version 0.2.0
+  ```
+  完整发版流程、Ed25519 私钥生成与给买家签发离线激活码教程见 [docs/RELEASE_WINDOWS.md](docs/RELEASE_WINDOWS.md)，商品化卖点与平台话术见 [docs/SALES_KIT.md](docs/SALES_KIT.md)。
+- **轻量 CLI 一键启动托盘模式**：
+  ```bash
+  uv run --no-sync book-cleaner desktop
+  ```
 
 ## 桌面端打包与自测
 

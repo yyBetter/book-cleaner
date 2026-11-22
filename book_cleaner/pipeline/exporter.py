@@ -144,7 +144,7 @@ def export_searchable_pdf(
             {
                 "title": str(book.get("title", "")),
                 "author": str(book.get("author", "")),
-                "creator": "Book Cleaner",
+                "creator": "超级扫描仪 · SuperScanner",
             }
         )
         doc.save(str(out_path), garbage=3, deflate=True)
@@ -190,7 +190,7 @@ def export_epub(book: dict[str, Any], pages: list[dict[str, Any]], out_path: Pat
     out_path.parent.mkdir(parents=True, exist_ok=True)
     book_uuid = str(uuid.uuid5(uuid.NAMESPACE_DNS, f"book-cleaner-{book.get('id', 0)}"))
     title = html.escape(str(book.get("title") or "未命名书籍"))
-    author = html.escape(str(book.get("author") or "Book Cleaner"))
+    author = html.escape(str(book.get("author") or "超级扫描仪 · SuperScanner"))
     modified = datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
 
     chunk_size = 20

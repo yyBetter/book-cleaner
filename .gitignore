@@ -13,4 +13,5 @@ build/
 *.db-shm
 *.pem
 *.key
+keys/
 *.zip

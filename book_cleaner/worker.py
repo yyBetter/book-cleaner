@@ -17,6 +17,7 @@ import pymupdf
 from book_cleaner.camera import CameraManager
 from book_cleaner.config import AppConfig
 from book_cleaner.db import Database
+from book_cleaner.licensing import evaluate_stored_license
 from book_cleaner.pipeline.data_clean import extract_book_structured_data
 from book_cleaner.pipeline.deepseek_addon import DeepSeekAddonManager
 from book_cleaner.pipeline.excel_exporter import export_excel_workbook
@@ -778,6 +779,33 @@ class PipelineCoordinator:
         self.events.publish("data_cleaned", {"book_id": book_id, "summary": summary})
         return summary
 
+    def _apply_export_license_gate(
+        self,
+        pages: list[dict[str, Any]],
+    ) -> tuple[list[dict[str, Any]], dict[str, Any]]:
+        """Apply the free-tier N-page export cap when offline license limits are active."""
+        lic = evaluate_stored_license(self.db, self.config)
+        limit = max(1, int(getattr(self.config, "free_export_page_limit", 5)))
+        total_pages = len(pages)
+        enforced = bool(getattr(self.config, "enforce_license_limits", True))
+        if enforced and not lic.export_unlimited and total_pages > limit:
+            gated = pages[:limit]
+            meta = {
+                "limited_by_license": True,
+                "original_page_count": total_pages,
+                "exported_page_count": len(gated),
+                "license_tier": lic.tier,
+                "free_export_page_limit": limit,
+            }
+            return gated, meta
+        return pages, {
+            "limited_by_license": False,
+            "original_page_count": total_pages,
+            "exported_page_count": total_pages,
+            "license_tier": lic.tier,
+            "free_export_page_limit": limit,
+        }
+
     def run_export_sync(
         self,
         *,
@@ -789,7 +817,8 @@ class PipelineCoordinator:
         book = self.db.get_book(book_id)
         if book is None:
             raise KeyError(f"Book {book_id} not found")
-        pages = self.db.list_export_pages(book_id)
+        raw_pages = self.db.list_export_pages(book_id)
+        pages, gate_meta = self._apply_export_license_gate(raw_pages)
         fmt_norm = fmt.lower().strip()
         ext_map = {
             "pdf": ".pdf",
@@ -815,8 +844,11 @@ class PipelineCoordinator:
                 else self.db.get_default_excel_template()
             )
             assert template is not None
-            summary = self.run_data_cleaning_sync(book_id=book_id, template_id=template["id"])
-            structured_rows = self.db.list_all_structured_rows(book_id)
+            if gate_meta["limited_by_license"]:
+                structured_rows, summary = extract_book_structured_data(book, pages, template)
+            else:
+                summary = self.run_data_cleaning_sync(book_id=book_id, template_id=template["id"])
+                structured_rows = self.db.list_all_structured_rows(book_id)
             page_assignments = self.db.list_page_assignments(book_id, int(template["id"]))
             return export_excel_workbook(
                 book,
@@ -846,12 +878,13 @@ class PipelineCoordinator:
         book = self.db.get_book(book_id)
         if book is None:
             raise KeyError(f"Book {book_id} not found")
-        pages = self.db.list_export_pages(book_id)
+        raw_pages = self.db.list_export_pages(book_id)
+        gated_pages, gate_meta = self._apply_export_license_gate(raw_pages)
         job = self.db.create_job(
             job_type=f"EXPORT_{fmt.upper()}",
             book_id=book_id,
-            total_items=len(pages),
-            params={"format": fmt, "template_id": template_id},
+            total_items=len(gated_pages),
+            params={"format": fmt, "template_id": template_id, **gate_meta},
         )
 
         def _runner() -> None:
@@ -861,7 +894,7 @@ class PipelineCoordinator:
                 self.db.update_job(
                     job["id"],
                     status="DONE",
-                    done_items=len(pages),
+                    done_items=len(gated_pages),
                     result_path=self.storage.to_rel(out),
                 )
                 self.events.publish(
@@ -872,6 +905,7 @@ class PipelineCoordinator:
                         "book_id": book_id,
                         "format": fmt,
                         "result_path": self.storage.to_rel(out),
+                        **gate_meta,
                     },
                 )
             except Exception as exc:

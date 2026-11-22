@@ -55,6 +55,9 @@ DEFAULT_SETTINGS: dict[str, Any] = {
         "timeout_s": 45.0,
     },
     "capture_profile": dict(DEFAULT_CLEAN_PROFILE),
+    "license": {
+        "license_key": "",
+    },
 }
 
 DEFAULT_EXCEL_RULES: dict[str, Any] = {
@@ -164,6 +167,117 @@ MULTISHEET_CATBOOST_PACK_SHEETS: list[dict[str, Any]] = [
             {"key": "y_purity", "name": "y_核心纯度", "role": "target_y", "agg": "last", "aliases": ["最终纯度", "核心纯度", "纯度", "组分占比"]},
             {"key": "y_yield", "name": "y_总收率", "role": "target_y", "agg": "last", "aliases": ["总收率", "收率", "得率", "回收率"]},
             {"key": "y_grade", "name": "y_质量判定", "role": "target_y", "agg": "last", "aliases": ["质量判定", "合格判定", "质量等级", "判定"]},
+        ],
+    },
+]
+
+LAB_NOTEBOOK_PACK_SHEETS: list[dict[str, Any]] = [
+    {
+        "sheet_id": "sheet_lab_sample",
+        "name": "样品登记",
+        "mode": "record",
+        "match_keywords": ["样品", "登记", "实验编号", "课题", "受试物", "试剂", "Sample"],
+        "fields": [
+            {"key": "batch_id", "name": "实验编号", "role": "meta_id", "agg": "last", "aliases": ["批次号", "样品号", "课题编号", "Sample ID"]},
+            {"key": "experiment_date", "name": "实验日期", "role": "time_split", "agg": "last", "aliases": ["日期", "登记日期", "检测日期"]},
+            {"key": "sample_name", "name": "样品名称", "role": "cat_feature", "agg": "last", "aliases": ["样品", "试剂名称", "材料名称"]},
+            {"key": "operator_name", "name": "实验人员", "role": "cat_feature", "agg": "last", "aliases": ["分析人", "检验员", "操作人"]},
+            {"key": "sample_mass_mg", "name": "称样量", "role": "num_feature", "agg": "last", "aliases": ["样品质量", "称样量(mg)", "稀释倍数"]},
+        ],
+    },
+    {
+        "sheet_id": "sheet_lab_cond",
+        "name": "实验条件",
+        "mode": "table",
+        "match_keywords": ["实验条件", "反应温度", "搅拌", "梯度", "色谱", "仪参", "试剂配方"],
+        "fields": [
+            {"key": "batch_id", "name": "实验编号", "role": "meta_id", "agg": "last", "aliases": ["批次号", "样品号"]},
+            {"key": "time_point", "name": "采样时刻", "role": "time_split", "agg": "last", "aliases": ["时刻", "时间", "取样点", "阶段"]},
+            {"key": "react_temp_c", "name": "反应温度", "role": "num_feature", "agg": "stats", "aliases": ["温度", "柱温", "温度(℃)"]},
+            {"key": "ph_val", "name": "体系pH", "role": "num_feature", "agg": "stats", "aliases": ["pH", "酸碱度", "pH值"]},
+            {"key": "flow_rate", "name": "流速/转速", "role": "num_feature", "agg": "stats", "aliases": ["流速", "转速", "搅拌速度"]},
+            {"key": "cond_note", "name": "条件备注", "role": "text_feature", "agg": "join", "aliases": ["备注", "说明"]},
+        ],
+    },
+    {
+        "sheet_id": "sheet_lab_result_y",
+        "name": "检测结果_Y",
+        "mode": "record",
+        "match_keywords": ["检测结果", "测定", "分析结果", "图谱", "峰面积", "收率", "纯度", "结论"],
+        "fields": [
+            {"key": "batch_id", "name": "实验编号", "role": "meta_id", "agg": "last", "aliases": ["批次号", "样品号"]},
+            {"key": "report_date", "name": "报告日期", "role": "time_split", "agg": "last", "aliases": ["日期", "完成日期"]},
+            {"key": "y_purity", "name": "y_主成分纯度", "role": "target_y", "agg": "last", "aliases": ["纯度", "主成分纯度", "HPLC纯度", "含量(%)"]},
+            {"key": "y_yield", "name": "y_实验收率", "role": "target_y", "agg": "last", "aliases": ["收率", "产率", "回收率"]},
+            {"key": "y_metric", "name": "y_核心指标值", "role": "target_y", "agg": "last", "aliases": ["测定值", "吸光度", "效价", "活性"]},
+            {"key": "y_conclusion", "name": "y_检测结论", "role": "target_y", "agg": "last", "aliases": ["结论", "判定", "合格判定"]},
+        ],
+    },
+    {
+        "sheet_id": "sheet_lab_notes",
+        "name": "实验备注",
+        "mode": "text",
+        "match_keywords": ["实验现象", "实验备注", "SOP", "异常现象", "图谱说明", "改进建议"],
+        "fields": [
+            {"key": "batch_id", "name": "实验编号", "role": "meta_id", "agg": "last", "aliases": ["批次号", "样品号"]},
+            {"key": "note_date", "name": "记录日期", "role": "time_split", "agg": "last", "aliases": ["日期"]},
+            {"key": "note_title", "name": "现象小节", "role": "cat_feature", "agg": "last", "aliases": ["标题", "章节"]},
+            {"key": "note_content", "name": "实验现象与备注正文", "role": "text_feature", "agg": "join", "aliases": ["正文", "内容", "清洗后正文", "备注"]},
+        ],
+    },
+]
+
+FINANCE_CONTRACT_PACK_SHEETS: list[dict[str, Any]] = [
+    {
+        "sheet_id": "sheet_fin_contract",
+        "name": "合同摘要",
+        "mode": "record",
+        "match_keywords": ["合同", "协议", "甲方", "乙方", "签约", "标的额", "合同编号", "台账"],
+        "fields": [
+            {"key": "batch_id", "name": "合同/单据编号", "role": "meta_id", "agg": "last", "aliases": ["批次号", "合同编号", "单号", "凭证号"]},
+            {"key": "sign_date", "name": "签订日期", "role": "time_split", "agg": "last", "aliases": ["日期", "签约日期", "开票日期"]},
+            {"key": "counterparty", "name": "交易对方", "role": "cat_feature", "agg": "last", "aliases": ["供应商", "客户名称", "乙方", "收款方"]},
+            {"key": "contract_title", "name": "合同项目名称", "role": "cat_feature", "agg": "last", "aliases": ["项目名称", "标的物", "标题"]},
+            {"key": "total_amount", "name": "合同总金额", "role": "num_feature", "agg": "last", "aliases": ["金额", "总价", "含税总额", "签约金额"]},
+        ],
+    },
+    {
+        "sheet_id": "sheet_fin_expense",
+        "name": "费用明细表",
+        "mode": "table",
+        "match_keywords": ["费用明细", "报销", "预算", "采购清单", "单价", "数量", "小计", "税率"],
+        "fields": [
+            {"key": "batch_id", "name": "合同/单据编号", "role": "meta_id", "agg": "last", "aliases": ["批次号", "合同编号", "报销单号"]},
+            {"key": "expense_date", "name": "发生日期", "role": "time_split", "agg": "last", "aliases": ["日期", "费用日期"]},
+            {"key": "item_name", "name": "费用科目/品名", "role": "cat_feature", "agg": "last", "aliases": ["品名", "科目", "费用类别", "项目"]},
+            {"key": "qty", "name": "数量", "role": "num_feature", "agg": "stats", "aliases": ["件数", "工时"]},
+            {"key": "unit_price", "name": "单价", "role": "num_feature", "agg": "stats", "aliases": ["含税单价", "价格"]},
+            {"key": "line_amount", "name": "明细金额", "role": "num_feature", "agg": "stats", "aliases": ["金额", "小计", "价税合计"]},
+        ],
+    },
+    {
+        "sheet_id": "sheet_fin_invoice",
+        "name": "发票核对",
+        "mode": "table",
+        "match_keywords": ["发票", "税号", "校验码", "价税合计", "专用发票", "普票", "增值税"],
+        "fields": [
+            {"key": "batch_id", "name": "合同/单据编号", "role": "meta_id", "agg": "last", "aliases": ["批次号", "单号", "合同编号"]},
+            {"key": "invoice_date", "name": "开票日期", "role": "time_split", "agg": "last", "aliases": ["日期"]},
+            {"key": "invoice_no", "name": "发票号码", "role": "cat_feature", "agg": "last", "aliases": ["发票代码", "票号"]},
+            {"key": "tax_amount", "name": "税额", "role": "num_feature", "agg": "stats", "aliases": ["增值税额"]},
+            {"key": "invoice_total", "name": "价税合计", "role": "num_feature", "agg": "stats", "aliases": ["金额", "含税金额"]},
+        ],
+    },
+    {
+        "sheet_id": "sheet_fin_approval",
+        "name": "审批备注",
+        "mode": "text",
+        "match_keywords": ["审批", "会签", "财务复核", "付款条件", "违约条款", "附件说明"],
+        "fields": [
+            {"key": "batch_id", "name": "合同/单据编号", "role": "meta_id", "agg": "last", "aliases": ["批次号", "单号", "合同编号"]},
+            {"key": "approve_date", "name": "审批日期", "role": "time_split", "agg": "last", "aliases": ["日期"]},
+            {"key": "section_title", "name": "条款/审批环节", "role": "cat_feature", "agg": "last", "aliases": ["标题", "章节"]},
+            {"key": "approval_text", "name": "审批意见与付款条款", "role": "text_feature", "agg": "join", "aliases": ["正文", "内容", "清洗后正文", "备注"]},
         ],
     },
 ]
@@ -413,7 +527,7 @@ class Database:
                     """,
                     (
                         "多表批次记录与多目标 CatBoost 模板包",
-                        "多Sheet抽屉分拣 + 字段别名自学习 + 多目标y宽表输出（适配多单据批次与CatBoost）",
+                        "适用：制造 / 医药 / 化工 / 生产批记录（多Sheet抽屉分拣 + 字段别名自学习 + 多目标 y CatBoost 宽表）",
                         "正文结构化条目",
                         "提取表格明细",
                         json.dumps(CATBOOST_BATCH_RULES, ensure_ascii=False),
@@ -423,6 +537,44 @@ class Database:
                         now,
                     ),
                 )
+            for tpl_name, tpl_desc, tpl_rules, tpl_sheets in (
+                (
+                    "实验室检测与研发实验本模板包",
+                    "适用：研发实验本、质检化验单与小试记录（样品登记 / 实验条件 / 检测结果_Y / 实验备注）",
+                    CATBOOST_BATCH_RULES,
+                    LAB_NOTEBOOK_PACK_SHEETS,
+                ),
+                (
+                    "财务凭证与合同台账模板包",
+                    "适用：合同台账、采购费用明细、发票核对与审批凭证（合同摘要 / 费用明细表 / 发票核对 / 审批备注）",
+                    {**DEFAULT_EXCEL_RULES, "catboost_mode": False},
+                    FINANCE_CONTRACT_PACK_SHEETS,
+                ),
+            ):
+                exists = conn.execute(
+                    "SELECT 1 FROM excel_templates WHERE name = ? LIMIT 1",
+                    (tpl_name,),
+                ).fetchone()
+                if exists is None:
+                    conn.execute(
+                        """
+                        INSERT INTO excel_templates(
+                            name, description, entry_sheet_name, table_sheet_name,
+                            rules_json, columns_json, sheets_json, created_at, updated_at
+                        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+                        """,
+                        (
+                            tpl_name,
+                            tpl_desc,
+                            "正文结构化条目",
+                            "提取表格明细",
+                            json.dumps(tpl_rules, ensure_ascii=False),
+                            json.dumps(DEFAULT_EXCEL_COLUMNS, ensure_ascii=False),
+                            json.dumps(tpl_sheets, ensure_ascii=False),
+                            now,
+                            now,
+                        ),
+                    )
 
     @staticmethod
     def _row_to_book(row: sqlite3.Row | None) -> dict[str, Any] | None:

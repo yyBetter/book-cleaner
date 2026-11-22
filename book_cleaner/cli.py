@@ -1,4 +1,4 @@
-"""Command-line interface for Book Cleaner server, bulk import, export, and demo seeding."""
+"""Command-line interface for SuperScanner (book-cleaner) server, desktop tray, bulk import, export, and demo seeding."""
 
 from __future__ import annotations
 
@@ -11,6 +11,7 @@ from book_cleaner.api import create_app, detect_lan_ip
 from book_cleaner.config import AppConfig
 from book_cleaner.db import Database
 from book_cleaner.demo_generator import generate_demo_pages
+from book_cleaner.desktop_launcher import run_desktop_launcher
 from book_cleaner.storage import ShardedStorage
 from book_cleaner.tls import ensure_lan_self_signed_cert
 from book_cleaner.worker import PipelineCoordinator
@@ -19,7 +20,7 @@ from book_cleaner.worker import PipelineCoordinator
 def _build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
         prog="book-cleaner",
-        description="100k-page paper book capture, cleaning, offline RapidOCR, and export workbench.",
+        description="SuperScanner (book-cleaner): 100k-page offline document capture, cleaning, RapidOCR, and export workbench.",
     )
     sub = parser.add_subparsers(dest="command", required=True)
 
@@ -34,6 +35,13 @@ def _build_parser() -> argparse.ArgumentParser:
         action="store_true",
         help="Auto-generate self-signed LAN HTTPS cert so Android phones unlock Wi-Fi live auto-capture",
     )
+
+    p_desk = sub.add_parser("desktop", help="Launch 1-click SuperScanner desktop tray mode & open browser")
+    p_desk.add_argument("--host", default="0.0.0.0")
+    p_desk.add_argument("--port", type=int, default=8765)
+    p_desk.add_argument("--data-dir", type=Path, default=None)
+    p_desk.add_argument("--no-browser", action="store_true")
+    p_desk.add_argument("--no-tray", action="store_true")
 
     p_imp = sub.add_parser("import-folder", help="Bulk import local image/PDF scans into a book")
     p_imp.add_argument("--book-title", required=True)
@@ -72,9 +80,9 @@ def main(argv: list[str] | None = None) -> None:
 
         app = create_app(cfg, start_workers=True)
         scheme = "https" if certfile else "http"
-        print(f"Book Cleaner Workbench -> {scheme}://127.0.0.1:{args.port}/")
-        print(f"Phone Companion (WiFi) -> {scheme}://{lan_ip}:{args.port}/mobile")
-        print(f"Android USB (ADB)      -> http://127.0.0.1:{args.port}/mobile")
+        print(f"超级扫描仪 · SuperScanner -> {scheme}://127.0.0.1:{args.port}/")
+        print(f"Phone Companion (WiFi)    -> {scheme}://{lan_ip}:{args.port}/mobile")
+        print(f"Android USB (ADB)         -> http://127.0.0.1:{args.port}/mobile")
         uvicorn.run(
             app,
             host=args.host,
@@ -84,6 +92,17 @@ def main(argv: list[str] | None = None) -> None:
             log_level="info",
         )
         return
+
+    if args.command == "desktop":
+        raise SystemExit(
+            run_desktop_launcher(
+                host=args.host,
+                port=args.port,
+                data_dir=args.data_dir,
+                open_browser=not args.no_browser,
+                use_tray=not args.no_tray,
+            )
+        )
 
     cfg = AppConfig(data_dir=args.data_dir)
     cfg.ensure_dirs()

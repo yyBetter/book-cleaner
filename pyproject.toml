@@ -5,7 +5,7 @@ build-backend = "hatchling.build"
 [project]
 name = "book-cleaner"
 version = "0.1.0"
-description = "100k-page paper book capture, OpenCV cleaning, offline RapidOCR, optional LLM proofreading, and multi-format export workbench."
+description = "SuperScanner: 100k-page offline paper book & multi-sheet batch capture, OpenCV cleaning, RapidOCR, and CatBoost export workbench."
 readme = "README.md"
 requires-python = ">=3.11,<3.14"
 dependencies = [
@@ -24,6 +24,11 @@ dependencies = [
     "openpyxl>=3.1.5",
 ]
 
+[project.optional-dependencies]
+desktop = [
+    "pystray>=0.19.5",
+]
+
 [dependency-groups]
 dev = [
     "pytest>=8.3.0",
@@ -31,6 +36,7 @@ dev = [
 
 [project.scripts]
 book-cleaner = "book_cleaner.cli:main"
+superscanner-desktop = "book_cleaner.desktop_launcher:main"
 
 [tool.uv]
 python-install-mirror = "https://registry.npmmirror.com/-/binary/python-build-standalone"

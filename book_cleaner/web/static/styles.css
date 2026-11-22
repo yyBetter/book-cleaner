@@ -362,10 +362,20 @@ textarea {
 
 .brand-title {
   margin: 0;
+  display: inline-flex;
+  align-items: baseline;
+  gap: 6px;
   font-size: 15px;
   font-weight: 600;
   letter-spacing: -0.015em;
   white-space: nowrap;
+}
+
+.brand-sub {
+  font-size: 11.5px;
+  font-weight: 500;
+  letter-spacing: 0.01em;
+  color: var(--muted);
 }
 
 .book-switcher-group {
@@ -3699,4 +3709,106 @@ dialog.dialog-settings {
   flex-wrap: wrap;
   margin-top: auto;
   padding-top: 4px;
+}
+
+/* ================= COMMERCIAL LICENSING & PRESET PACKS ================= */
+.license-topbar-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  white-space: nowrap;
+}
+
+.license-topbar-btn.is-licensed {
+  color: var(--ok);
+  background: var(--ok-tint);
+}
+
+.license-dot {
+  width: 7px;
+  height: 7px;
+  border-radius: 999px;
+  background: var(--warn);
+  flex: none;
+}
+
+.license-dot.is-ok {
+  background: var(--ok-dot);
+}
+
+.license-export-banner {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 14px;
+  flex-wrap: wrap;
+  padding: 12px 16px;
+  margin-bottom: 14px;
+  border-radius: 12px;
+  background: var(--warn-tint);
+  border: 1px solid var(--border);
+}
+
+.license-export-banner-text {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+  font-size: 13px;
+  color: var(--text);
+}
+
+.license-export-banner-text strong {
+  color: var(--warn);
+}
+
+.license-status-card {
+  padding: 14px 16px;
+  border-radius: 12px;
+  background: var(--surface-subtle);
+  border: 1px solid var(--border);
+}
+
+.license-code-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.license-code-value {
+  flex: 1;
+  min-width: 0;
+  padding: 9px 12px;
+  border-radius: 8px;
+  background: var(--surface-subtle);
+  border: 1px solid var(--border);
+  font-size: 13.5px;
+  font-weight: 600;
+  letter-spacing: 0.04em;
+  color: var(--text);
+  user-select: all;
+}
+
+.pack-scenario-bar {
+  flex: none;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  flex-wrap: wrap;
+  padding: 8px 18px;
+  background: var(--surface-rail);
+  border-bottom: 1px solid var(--border);
+}
+
+.pack-preset-pills {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex-wrap: wrap;
+}
+
+.pack-scenario-desc {
+  font-size: 12px;
+  min-width: 0;
 }

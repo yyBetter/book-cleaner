@@ -19,20 +19,29 @@ const state = {
   currentBookId: null,
   activeTab: "capture",
   recentCaptured: [],
+  license: null,
 };
 
 const bookSelect = document.getElementById("bookSelect");
 const pipelinePill = document.getElementById("pipelinePill");
 const pipelinePillText = document.getElementById("pipelinePillText");
 const activeOcrPill = document.getElementById("activeOcrPill");
+const openLicenseBtn = document.getElementById("openLicenseBtn");
+const licenseStatusDot = document.getElementById("licenseStatusDot");
+const licenseBtnText = document.getElementById("licenseBtnText");
+const exportLicenseBanner = document.getElementById("exportLicenseBanner");
+const exportLicenseBannerMsg = document.getElementById("exportLicenseBannerMsg");
+const exportUnlockBtn = document.getElementById("exportUnlockBtn");
 const newBookDialog = document.getElementById("newBookDialog");
 const settingsDialog = document.getElementById("settingsDialog");
+const licenseDialog = document.getElementById("licenseDialog");
 const shortcutsDialog = document.getElementById("shortcutsDialog");
 const tabBtns = Array.from(document.querySelectorAll(".tab-btn"));
 
 initThemeToggle(document.getElementById("themeToggleBtn"), { compact: true });
 enableDialogLightDismissFallback(newBookDialog);
 enableDialogLightDismissFallback(settingsDialog);
+enableDialogLightDismissFallback(licenseDialog);
 enableDialogLightDismissFallback(shortcutsDialog);
 
 const openShortcutsBtn = document.getElementById("openShortcutsBtn");
@@ -70,6 +79,171 @@ function updateActiveOcrPill(ocrCfg) {
   const label = OCR_ENGINE_LABELS[eng] || eng;
   activeOcrPill.textContent = `${lockPrefix}${label}`;
   activeOcrPill.className = `pill ${strict || eng !== "rapidocr" ? "pill-ok" : ""}`;
+}
+
+function renderLicenseUi(lic) {
+  state.license = lic || null;
+  if (!lic) return;
+  const isActive = Boolean(lic.active && lic.export_unlimited);
+  const limit = Number(lic.free_export_page_limit || 5);
+
+  if (openLicenseBtn && licenseBtnText && licenseStatusDot) {
+    openLicenseBtn.classList.toggle("is-licensed", isActive);
+    licenseStatusDot.className = `license-dot ${isActive ? "is-ok" : "is-free"}`;
+    if (isActive) {
+      licenseBtnText.textContent = lic.tier === "enterprise" ? "企业版已激活" : "专业版已激活";
+    } else {
+      licenseBtnText.textContent = "免费体验版 · 激活";
+    }
+  }
+
+  if (exportLicenseBanner) {
+    exportLicenseBanner.classList.toggle("hidden", isActive);
+    if (!isActive && exportLicenseBannerMsg) {
+      exportLicenseBannerMsg.textContent = `免费体验版单次导出前 ${limit} 页，输入离线激活码解锁不限页与多目标 CatBoost 全量导出`;
+    }
+  }
+
+  const badge = document.getElementById("licenseTierBadge");
+  const expiryEl = document.getElementById("licenseExpiryText");
+  const descEl = document.getElementById("licenseStatusDesc");
+  const noteEl = document.getElementById("licenseNoteText");
+  const mcEl = document.getElementById("licenseMachineCode");
+  const deactivateBtn = document.getElementById("deactivateLicenseBtn");
+
+  if (mcEl) mcEl.textContent = lic.machine_code || "-";
+  if (badge) {
+    badge.textContent = lic.tier_label || (isActive ? "已激活" : "免费体验版");
+    badge.className = `pill ${isActive ? "pill-ok" : "pill-warn"}`;
+  }
+  if (expiryEl) {
+    if (isActive) {
+      expiryEl.textContent = lic.is_perpetual ? "永久买断授权" : `有效期至 ${lic.expires_at}`;
+    } else {
+      expiryEl.textContent = `单次最多导出前 ${limit} 页`;
+    }
+  }
+  if (descEl) {
+    descEl.textContent = lic.status_message || "";
+  }
+  if (noteEl) {
+    if (isActive && lic.note) {
+      noteEl.textContent = `授权备注：${lic.note}`;
+      noteEl.classList.remove("hidden");
+    } else {
+      noteEl.textContent = "";
+      noteEl.classList.add("hidden");
+    }
+  }
+  if (deactivateBtn) {
+    deactivateBtn.classList.toggle("hidden", !isActive);
+  }
+}
+
+async function refreshLicense() {
+  try {
+    const lic = await apiJson("/api/license");
+    renderLicenseUi(lic);
+    return lic;
+  } catch {
+    return null;
+  }
+}
+
+async function openLicenseModal() {
+  const feedback = document.getElementById("licenseFeedback");
+  if (feedback) {
+    feedback.textContent = "";
+    feedback.style.color = "var(--muted)";
+  }
+  await refreshLicense();
+  if (licenseDialog && !licenseDialog.open) {
+    licenseDialog.showModal();
+  }
+}
+
+if (openLicenseBtn) {
+  openLicenseBtn.addEventListener("click", () => openLicenseModal());
+}
+if (exportUnlockBtn) {
+  exportUnlockBtn.addEventListener("click", () => openLicenseModal());
+}
+
+const copyMachineCodeBtn = document.getElementById("copyMachineCodeBtn");
+if (copyMachineCodeBtn) {
+  copyMachineCodeBtn.addEventListener("click", async () => {
+    const code = (state.license && state.license.machine_code) || document.getElementById("licenseMachineCode")?.textContent || "";
+    if (!code || code === "-") return;
+    try {
+      await navigator.clipboard.writeText(code);
+      showToast(`已复制机器码 ${code}`, "ok");
+    } catch {
+      const tmp = document.createElement("input");
+      tmp.value = code;
+      document.body.appendChild(tmp);
+      tmp.select();
+      document.execCommand("copy");
+      tmp.remove();
+      showToast(`已复制机器码 ${code}`, "ok");
+    }
+  });
+}
+
+const licenseActivateForm = document.getElementById("licenseActivateForm");
+if (licenseActivateForm) {
+  licenseActivateForm.addEventListener("submit", async (e) => {
+    e.preventDefault();
+    const keyInput = document.getElementById("licenseKeyInput");
+    const feedback = document.getElementById("licenseFeedback");
+    const submitBtn = document.getElementById("activateLicenseSubmitBtn");
+    const rawKey = (keyInput && keyInput.value.trim()) || "";
+    if (!rawKey) {
+      if (feedback) {
+        feedback.textContent = "请先粘贴完整的离线激活码（以 SS1. 开头）";
+        feedback.style.color = "var(--warn)";
+      }
+      return;
+    }
+    await withButtonLoading(submitBtn, "本地验签中...", async () => {
+      try {
+        const res = await apiJson("/api/license/activate", {
+          method: "POST",
+          body: { license_key: rawKey },
+        });
+        renderLicenseUi(res);
+        if (keyInput) keyInput.value = "";
+        if (feedback) {
+          feedback.textContent = res.status_message || "离线激活成功";
+          feedback.style.color = "var(--ok)";
+        }
+        showToast(`${res.tier_label}离线激活成功！已解锁全量导出`, "ok");
+      } catch (err) {
+        if (feedback) {
+          feedback.textContent = err.message;
+          feedback.style.color = "var(--danger)";
+        }
+        showToast(err.message, "danger");
+      }
+    });
+  });
+}
+
+const deactivateLicenseBtn = document.getElementById("deactivateLicenseBtn");
+if (deactivateLicenseBtn) {
+  wireTwoStepAction(deactivateLicenseBtn, "确认清除？", async () => {
+    try {
+      const res = await apiJson("/api/license", { method: "DELETE" });
+      renderLicenseUi(res);
+      const feedback = document.getElementById("licenseFeedback");
+      if (feedback) {
+        feedback.textContent = "已清除当前离线授权，已切回免费体验版";
+        feedback.style.color = "var(--muted)";
+      }
+      showToast("已清除当前授权", "ok");
+    } catch (err) {
+      showToast(err.message, "danger");
+    }
+  });
 }
 
 function updateTabBadges(bookStats) {
@@ -695,7 +869,14 @@ document.addEventListener("keydown", (e) => {
   }
 
   const tag = (e.target && e.target.tagName) || "";
-  if (tag === "INPUT" || tag === "TEXTAREA" || tag === "SELECT" || newBookDialog.open || settingsDialog.open) {
+  if (
+    tag === "INPUT" ||
+    tag === "TEXTAREA" ||
+    tag === "SELECT" ||
+    newBookDialog.open ||
+    settingsDialog.open ||
+    (licenseDialog && licenseDialog.open)
+  ) {
     return;
   }
   if (e.key === "?" && shortcutsDialog) {
@@ -840,6 +1021,7 @@ async function init() {
   });
 
   await refreshBooks();
+  await refreshLicense();
   await dataCleanCtrl.loadTemplates();
   await dataCleanCtrl.refreshPreview();
   await refreshStats();
