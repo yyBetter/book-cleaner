@@ -29,6 +29,7 @@ from book_cleaner.pipeline.exporter import (
 from book_cleaner.pipeline.image_clean import CleanProfile, clean_page_image, split_double_spread
 from book_cleaner.pipeline.llm_clean import LLMConfig, clean_text_with_llm, should_run_llm
 from book_cleaner.pipeline.ocr_router import SmartOCRRouter
+from book_cleaner.pipeline.offline_ocr_hub import OfflineOCRHub, is_local_only_url
 from book_cleaner.pipeline.qa import evaluate_capture_qa
 from book_cleaner.storage import (
     ShardedStorage,
@@ -98,10 +99,17 @@ class PipelineCoordinator:
         self.storage = storage
         self.events = EventBus()
         self.deepseek_addon = DeepSeekAddonManager(config.data_dir, events=self.events)
+        self.offline_ocr_hub = OfflineOCRHub(
+            config.data_dir, deepseek_addon=self.deepseek_addon, events=self.events
+        )
         self.ocr_engine = (
             ocr_engine
             if ocr_engine is not None
-            else SmartOCRRouter(db=db, addon_manager=self.deepseek_addon)
+            else SmartOCRRouter(
+                db=db,
+                addon_manager=self.deepseek_addon,
+                offline_hub=self.offline_ocr_hub,
+            )
         )
         self.camera = camera if camera is not None else CameraManager()
 
@@ -435,8 +443,13 @@ class PipelineCoordinator:
             merged_flags = list(dict.fromkeys([*existing_flags, *ocr_res.flags]))
 
             settings = self.db.get_settings()
+            ocr_cfg = settings.get("ocr") or {}
             llm_cfg = LLMConfig.from_dict(settings.get("llm"))
-            use_llm = should_run_llm(llm_cfg, ocr_res.avg_confidence, ocr_res.formatted_text)
+            strict_off = bool(ocr_cfg.get("strict_offline", True))
+            llm_blocked_offline = strict_off and bool(llm_cfg.base_url) and not is_local_only_url(llm_cfg.base_url)
+            use_llm = (not llm_blocked_offline) and should_run_llm(
+                llm_cfg, ocr_res.avg_confidence, ocr_res.formatted_text
+            )
 
             if use_llm:
                 next_status = "OCR_DONE"
@@ -489,12 +502,14 @@ class PipelineCoordinator:
     def process_llm_page(self, page: dict[str, Any]) -> dict[str, Any]:
         page_id = int(page["id"])
         settings = self.db.get_settings()
+        ocr_cfg = settings.get("ocr") or {}
         llm_cfg = LLMConfig.from_dict(settings.get("llm"))
         source_text = (page.get("clean_text") or page.get("ocr_text") or "").strip()
         qa_flags = page.get("qa_flags") or []
 
         try:
-            if not source_text:
+            strict_off = bool(ocr_cfg.get("strict_offline", True))
+            if not source_text or (strict_off and not is_local_only_url(llm_cfg.base_url)):
                 next_status = "NEEDS_REVIEW" if qa_flags else "READY"
                 updated = self.db.update_page(
                     page_id, status=next_status, llm_status="SKIPPED", locked_by="", locked_at=""

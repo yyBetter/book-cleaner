@@ -37,6 +37,8 @@ DEFAULT_CLEAN_PROFILE: dict[str, Any] = {
 DEFAULT_SETTINGS: dict[str, Any] = {
     "ocr": {
         "engine": "rapidocr",
+        "strict_offline": True,
+        "ollama_base_url": "http://127.0.0.1:11434",
         "api_base_url": "https://api.siliconflow.cn/v1",
         "api_key": "",
         "api_model": "deepseek-ai/DeepSeek-OCR-2",

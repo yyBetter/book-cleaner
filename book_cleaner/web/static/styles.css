@@ -3622,4 +3622,81 @@ dialog::backdrop {
     border-right: none;
     border-top: 1px solid var(--border);
   }
+  .ocr-hub-grid {
+    grid-template-columns: 1fr;
+  }
+}
+
+/* ================= STRICT OFFLINE OCR MODEL HUB ================= */
+dialog.dialog-settings {
+  width: min(780px, calc(100vw - 28px));
+}
+
+.offline-lock-bar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 14px;
+  padding: 12px 14px;
+  border-radius: 12px;
+  background: var(--ok-tint);
+  border: 1px solid var(--border);
+}
+
+.offline-lock-info {
+  min-width: 0;
+  flex: 1;
+}
+
+.ocr-hub-rec {
+  margin-top: 6px;
+  font-size: 12.5px;
+  font-weight: 500;
+  color: var(--ok);
+  line-height: 1.5;
+}
+
+.ocr-hub-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 10px;
+}
+
+.ocr-model-card {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 12px 14px;
+  border-radius: 12px;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  min-width: 0;
+}
+
+.ocr-model-card.is-recommended {
+  border-color: var(--ok-dot);
+  box-shadow: 0 0 0 1px var(--ok-dot);
+}
+
+.ocr-model-head {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+.ocr-progress-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-top: 2px;
+}
+
+.ocr-card-actions {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex-wrap: wrap;
+  margin-top: auto;
+  padding-top: 4px;
 }
