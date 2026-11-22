@@ -411,3 +411,69 @@ def test_offline_ocr_hub_api_endpoints(tmp_path, monkeypatch):
         assert t_llm.status_code == 200
         assert t_llm.json()["ok"] is False
         assert "涉密严格离线模式" in t_llm.json()["message"]
+
+
+def test_windows_igpu_reserved_ram_tolerance(tmp_path):
+    # 16 GB Windows PC reporting 15.5 GB usable RAM with Ollama running -> Qwen2.5-VL 3B allowed
+    hw_16_running = inspect_host_hardware(
+        tmp_path,
+        gpu_probe=lambda: [],
+        disk_probe=lambda _: 40.0,
+        ram_probe=lambda: 15.5,
+        uv_probe=lambda: "uv.exe",
+        ollama_probe=lambda: {"installed": True, "running": True, "base_url": "http://127.0.0.1:11434", "models": []},
+        platform_system="Windows",
+        machine_arch="amd64",
+        cpu_count=8,
+    )
+    _, _, eval_16_running = evaluate_catalog(hw_16_running)
+    assert eval_16_running["ollama_qwen25vl_3b"]["fit"] == "compatible"
+    assert eval_16_running["ollama_qwen25vl_3b"]["can_download"] is True
+
+    # 16 GB Windows PC reporting 15.5 GB usable RAM with Ollama stopped -> needs_runtime (NOT insufficient)
+    hw_16_stopped = inspect_host_hardware(
+        tmp_path,
+        gpu_probe=lambda: [],
+        disk_probe=lambda _: 40.0,
+        ram_probe=lambda: 15.5,
+        uv_probe=lambda: "uv.exe",
+        ollama_probe=lambda: {"installed": False, "running": False, "base_url": "http://127.0.0.1:11434", "models": []},
+        platform_system="Windows",
+        machine_arch="amd64",
+        cpu_count=8,
+    )
+    _, _, eval_16_stopped = evaluate_catalog(hw_16_stopped)
+    assert eval_16_stopped["ollama_qwen25vl_3b"]["fit"] == "needs_runtime"
+
+    # 8 GB Windows PC reporting 7.5 GB usable RAM without Ollama -> recommends ppocrv5_server & marks GLM needs_runtime
+    hw_8_stopped = inspect_host_hardware(
+        tmp_path,
+        gpu_probe=lambda: [],
+        disk_probe=lambda _: 20.0,
+        ram_probe=lambda: 7.5,
+        uv_probe=lambda: "uv.exe",
+        ollama_probe=lambda: {"installed": False, "running": False, "base_url": "http://127.0.0.1:11434", "models": []},
+        platform_system="Windows",
+        machine_arch="amd64",
+        cpu_count=8,
+    )
+    rec_8, _, eval_8 = evaluate_catalog(hw_8_stopped)
+    assert rec_8 == "ppocrv5_server"
+    assert eval_8["ppocrv5_server"]["can_download"] is True
+    assert eval_8["ollama_glm_ocr"]["fit"] == "needs_runtime"
+
+    # 12 GB PC (below 14.0 GB tolerance floor) -> still blocked as insufficient for Qwen2.5-VL 3B
+    hw_12 = inspect_host_hardware(
+        tmp_path,
+        gpu_probe=lambda: [],
+        disk_probe=lambda _: 40.0,
+        ram_probe=lambda: 12.0,
+        uv_probe=lambda: "uv.exe",
+        ollama_probe=lambda: {"installed": True, "running": True, "base_url": "http://127.0.0.1:11434", "models": []},
+        platform_system="Windows",
+        machine_arch="amd64",
+        cpu_count=8,
+    )
+    _, _, eval_12 = evaluate_catalog(hw_12)
+    assert eval_12["ollama_qwen25vl_3b"]["fit"] == "insufficient"
+    assert eval_12["ollama_qwen25vl_3b"]["can_download"] is False

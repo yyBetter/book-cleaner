@@ -268,6 +268,13 @@ def inspect_host_hardware(
     }
 
 
+def meets_nominal_ram(ram_gb: float, min_ram_gb: float) -> bool:
+    """Allow ~12.5% OS/iGPU hardware-reserved RAM tolerance (e.g. 16 GB PC reporting 15.5 GB)."""
+    if min_ram_gb <= 0:
+        return True
+    return float(ram_gb) >= float(min_ram_gb) * 0.875
+
+
 def evaluate_catalog(hw: dict[str, Any]) -> tuple[str, str, dict[str, dict[str, Any]]]:
     """Rank and annotate every offline OCR model against host hardware capabilities."""
     ram_gb = float(hw.get("ram_gb", 0.0))
@@ -279,25 +286,25 @@ def evaluate_catalog(hw: dict[str, Any]) -> tuple[str, str, dict[str, dict[str, 
     ollama_running = bool(ollama.get("running"))
 
     # Select best 100% offline recommendation for this host
-    if len(gpus) > 0 and max_vram_mb >= 8192 and ram_gb >= 16.0 and free_disk_gb >= 12.0 and uv_ok:
+    if len(gpus) > 0 and max_vram_mb >= 8192 and meets_nominal_ram(ram_gb, 16.0) and free_disk_gb >= 12.0 and uv_ok:
         rec_id = "deepseek_ocr2_local"
         rec_text = (
             f"检测到独立显卡 {gpus[0]['name']} ({max_vram_mb} MB)，推荐下载「DeepSeek-OCR 2 旗舰 CUDA 本地包」，"
             "或安装轻量的「GLM-OCR 0.9B / PP-OCRv5 高精度包」配合涉密离线混合模式使用。"
         )
-    elif ram_gb >= 8.0 and free_disk_gb >= 4.0 and ollama_running:
+    elif meets_nominal_ram(ram_gb, 8.0) and free_disk_gb >= 4.0 and ollama_running:
         rec_id = "ollama_glm_ocr"
         rec_text = (
             "检测到本机已运行离线 Ollama 服务且内存充裕，强烈推荐下载「GLM-OCR 0.9B 轻量离线视觉版」，"
             "搭配「PP-OCRv5 高精度包」在涉密严格离线模式下兼顾速度与复杂表格/手写体精度。"
         )
-    elif ram_gb >= 8.0 and free_disk_gb >= 0.8:
+    elif meets_nominal_ram(ram_gb, 8.0) and free_disk_gb >= 0.8:
         rec_id = "ppocrv5_server"
         rec_text = (
             "当前电脑无 CUDA 独显（涉密严格离线），推荐先直接下载零依赖的「PP-OCRv5 高精度离线权重包」(165 MB)；"
             "若需复杂表格/手写更强理解，安装启动开源 Ollama 后即可一键拉取仅 0.9B 的「GLM-OCR」。"
         )
-    elif ram_gb >= 4.0 and free_disk_gb >= 0.3:
+    elif meets_nominal_ram(ram_gb, 4.0) and free_disk_gb >= 0.3:
         rec_id = "ppocrv5_mobile"
         rec_text = (
             f"当前主机内存 {ram_gb:.1f} GB 偏紧凑，推荐下载仅 ~21 MB 的「PP-OCRv5 轻量离线增强包」，纯 CPU 秒级运行且完全离线。"
@@ -314,7 +321,7 @@ def evaluate_catalog(hw: dict[str, Any]) -> tuple[str, str, dict[str, dict[str, 
         min_disk = float(m.get("min_disk_gb", 0.0))
         min_vram = int(m.get("min_vram_mb", 0))
 
-        if ram_gb < min_ram:
+        if not meets_nominal_ram(ram_gb, min_ram):
             reasons.append(f"内存不足：当前 {ram_gb:.1f} GB，建议 >= {min_ram:.0f} GB")
         if free_disk_gb < min_disk:
             reasons.append(f"磁盘可用空间不足：当前 {free_disk_gb:.1f} GB，需预留 >= {min_disk:.1f} GB")

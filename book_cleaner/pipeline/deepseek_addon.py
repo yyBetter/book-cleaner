@@ -155,7 +155,7 @@ def inspect_hardware_for_deepseek(
     checks = {
         "gpu": len(gpus) > 0,
         "vram": max_vram_mb >= MIN_VRAM_MB,
-        "ram": ram_gb >= MIN_RAM_GB,
+        "ram": ram_gb >= MIN_RAM_GB * 0.875,
         "disk": free_disk_gb >= MIN_DISK_GB,
         "uv": bool(uv_bin),
     }
