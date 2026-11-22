@@ -22,6 +22,7 @@ from book_cleaner.pipeline.offline_ocr_hub import (
     evaluate_catalog,
     inspect_host_hardware,
     is_local_only_url,
+    probe_ollama_local,
 )
 
 
@@ -477,3 +478,28 @@ def test_windows_igpu_reserved_ram_tolerance(tmp_path):
     _, _, eval_12 = evaluate_catalog(hw_12)
     assert eval_12["ollama_qwen25vl_3b"]["fit"] == "insufficient"
     assert eval_12["ollama_qwen25vl_3b"]["can_download"] is False
+
+
+def test_local_ollama_bypasses_env_proxy_and_static_no_cache(tmp_path, monkeypatch):
+    monkeypatch.setenv("HTTP_PROXY", "http://127.0.0.1:1")
+    monkeypatch.setenv("HTTPS_PROXY", "http://127.0.0.1:1")
+    monkeypatch.setenv("ALL_PROXY", "http://127.0.0.1:1")
+
+    def _handler(request: httpx.Request) -> httpx.Response:
+        assert str(request.url) == "http://127.0.0.1:11434/api/tags"
+        return httpx.Response(200, json={"models": [{"name": "glm-ocr:latest"}]})
+
+    res = probe_ollama_local("http://127.0.0.1:11434", http_transport=httpx.MockTransport(_handler))
+    assert res["running"] is True
+    assert res["models"] == ["glm-ocr:latest"]
+
+    cfg = AppConfig(data_dir=tmp_path / "cache_test_data")
+    app = create_app(cfg, start_workers=False)
+    with TestClient(app) as client:
+        r_index = client.get("/")
+        assert r_index.status_code == 200
+        assert r_index.headers.get("cache-control") == "no-cache"
+
+        r_js = client.get("/static/api.js")
+        assert r_js.status_code == 200
+        assert r_js.headers.get("cache-control") == "no-cache"

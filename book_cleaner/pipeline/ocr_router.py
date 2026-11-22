@@ -167,7 +167,7 @@ def _call_openai_vision_ocr(
     if client is not None:
         resp = client.post(url, json=payload, headers=headers, timeout=timeout_s)
     else:
-        with httpx.Client(timeout=timeout_s) as own_client:
+        with httpx.Client(timeout=timeout_s, trust_env=not is_local_only_url(base_url)) as own_client:
             resp = own_client.post(url, json=payload, headers=headers)
     resp.raise_for_status()
     body = resp.json()

@@ -335,16 +335,23 @@ def create_app(
     static_dir.mkdir(parents=True, exist_ok=True)
     app.mount("/static", StaticFiles(directory=str(static_dir)), name="static")
 
+    @app.middleware("http")
+    async def static_no_cache_middleware(request: Request, call_next):
+        response = await call_next(request)
+        if request.url.path.startswith("/static/"):
+            response.headers.setdefault("Cache-Control", "no-cache")
+        return response
+
     # ------------------------------------------------------------------
     # Static UI Entrypoints
     # ------------------------------------------------------------------
     @app.get("/", response_class=HTMLResponse)
     def index_page() -> FileResponse:
-        return FileResponse(WEB_DIR / "index.html")
+        return FileResponse(WEB_DIR / "index.html", headers={"Cache-Control": "no-cache"})
 
     @app.get("/mobile", response_class=HTMLResponse)
     def mobile_page() -> FileResponse:
-        return FileResponse(WEB_DIR / "mobile.html")
+        return FileResponse(WEB_DIR / "mobile.html", headers={"Cache-Control": "no-cache"})
 
     # ------------------------------------------------------------------
     # Health, Stats & Live SSE

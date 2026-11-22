@@ -184,7 +184,7 @@ def probe_ollama_local(
     if is_local_only_url(base_url):
         tags_url = f"{base_url.rstrip('/')}/api/tags"
         try:
-            with httpx.Client(transport=http_transport, timeout=timeout_s) as client:
+            with httpx.Client(transport=http_transport, timeout=timeout_s, trust_env=False) as client:
                 resp = client.get(tags_url)
                 if resp.status_code == 200:
                     running = True
@@ -851,6 +851,7 @@ class OfflineOCRHub:
             with httpx.Client(
                 transport=self.http_transport,
                 timeout=httpx.Timeout(connect=10.0, read=120.0, write=15.0, pool=10.0),
+                trust_env=False,
             ) as client:
                 with client.stream("POST", pull_url, json={"name": tag, "stream": True}) as resp:
                     if resp.status_code != 200:
@@ -993,7 +994,7 @@ class OfflineOCRHub:
             ob = ollama_base_url or self.ollama_base_url
             if is_local_only_url(ob):
                 try:
-                    with httpx.Client(transport=self.http_transport, timeout=5.0) as client:
+                    with httpx.Client(transport=self.http_transport, timeout=5.0, trust_env=False) as client:
                         client.request("DELETE", f"{ob.rstrip('/')}/api/delete", json={"name": m["ollama_model"]})
                 except Exception:
                     pass
