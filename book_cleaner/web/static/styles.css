@@ -2135,6 +2135,28 @@ textarea {
   color: var(--danger);
 }
 
+.pipe-tag.is-accent {
+  background: rgba(37, 99, 235, 0.11);
+  color: #1d4ed8;
+}
+
+@media (prefers-color-scheme: dark) {
+  .pipe-tag.is-accent {
+    background: rgba(59, 130, 246, 0.18);
+    color: #93c5fd;
+  }
+}
+
+:root[data-theme="light"] .pipe-tag.is-accent {
+  background: rgba(37, 99, 235, 0.11);
+  color: #1d4ed8;
+}
+
+:root[data-theme="dark"] .pipe-tag.is-accent {
+  background: rgba(59, 130, 246, 0.18);
+  color: #93c5fd;
+}
+
 .table-wrap {
   overflow: auto;
 }
@@ -2170,6 +2192,26 @@ textarea {
 
 .data-table tr.row-warn td {
   background: var(--warn-tint);
+}
+
+.data-table td.cell-alert-danger {
+  background: var(--danger-tint);
+  color: var(--danger);
+  font-weight: 600;
+  white-space: nowrap;
+}
+
+.cell-alert-badge {
+  display: inline-flex;
+  align-items: center;
+  margin-left: 6px;
+  padding: 1px 6px;
+  border-radius: 999px;
+  font-size: 11px;
+  font-weight: 700;
+  background: var(--danger);
+  color: #ffffff;
+  vertical-align: middle;
 }
 
 .cell-trunc {
@@ -2986,9 +3028,22 @@ textarea {
 .pack-field-head,
 .pack-field-row {
   display: grid;
-  grid-template-columns: 1.1fr 132px 1.2fr 36px;
-  gap: 8px;
+  grid-template-columns: minmax(110px, 1fr) 122px 68px 68px minmax(110px, 1.1fr) 34px;
+  gap: 6px;
   align-items: center;
+}
+
+.pack-bound-inp {
+  padding: 5px 6px;
+  font-size: 12px;
+  min-width: 0;
+  font-variant-numeric: tabular-nums;
+}
+
+.pack-bound-na {
+  text-align: center;
+  font-size: 12px;
+  user-select: none;
 }
 
 .pack-field-head {
@@ -3024,6 +3079,17 @@ textarea {
   font-size: 12.5px;
   color: var(--text);
   line-height: 1.5;
+}
+
+.export-privacy-box {
+  margin-top: 10px;
+  padding: 12px 14px;
+  border-radius: 12px;
+  border: 1px solid var(--border);
+  background: var(--surface-subtle);
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
 }
 
 /* ================= TAB 5: ASYMMETRIC EXPORT CENTER ================= */

@@ -9,37 +9,66 @@ import uuid
 import zipfile
 from datetime import datetime, timezone
 from pathlib import Path
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 import pymupdf
 from PIL import Image
 
 from book_cleaner.storage import ShardedStorage
 
+if TYPE_CHECKING:
+    from book_cleaner.pipeline.pii_redactor import ConsistentPIIRedactor
 
-def export_markdown(book: dict[str, Any], pages: list[dict[str, Any]], out_path: Path) -> Path:
+
+def export_markdown(
+    book: dict[str, Any],
+    pages: list[dict[str, Any]],
+    out_path: Path,
+    *,
+    redactor: "ConsistentPIIRedactor | None" = None,
+) -> Path:
     """Export cleaned book pages into structured Markdown with YAML frontmatter."""
     out_path = Path(out_path)
     out_path.parent.mkdir(parents=True, exist_ok=True)
     exported_at = datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
+    use_redactor = bool(redactor and redactor.enabled)
 
-    lines = [
-        "---",
-        f'title: "{str(book.get("title", "")).replace(chr(34), chr(39))}"',
-        f'author: "{str(book.get("author", "")).replace(chr(34), chr(39))}"',
-        f'isbn: "{str(book.get("isbn", "")).replace(chr(34), chr(39))}"',
-        f"page_count: {len(pages)}",
-        f'exported_at: "{exported_at}"',
-        "---",
-        "",
-        f"# {book.get('title', '未命名书籍')}",
-        "",
-    ]
+    title_raw = str(book.get("title", "未命名书籍"))
+    author_raw = str(book.get("author", ""))
+    title_out = redactor.redact_text(title_raw) if use_redactor else title_raw
+    author_out = redactor.redact_text(author_raw) if use_redactor else author_raw
+
+    page_bodies: list[tuple[Any, Any, float, str]] = []
     for p in pages:
         seq = p.get("seq_no", 0)
         side = p.get("spread_side", "S")
         conf = float(p.get("ocr_confidence", 0.0))
         body = (p.get("clean_text") or p.get("ocr_text") or "").strip()
+        if use_redactor and body:
+            body = redactor.redact_text(body)
+        page_bodies.append((seq, side, conf, body))
+
+    lines = [
+        "---",
+        f'title: "{title_out.replace(chr(34), chr(39))}"',
+        f'author: "{author_out.replace(chr(34), chr(39))}"',
+        f'isbn: "{str(book.get("isbn", "")).replace(chr(34), chr(39))}"',
+        f"page_count: {len(pages)}",
+        f'exported_at: "{exported_at}"',
+    ]
+    if use_redactor and redactor is not None:
+        r_stats = redactor.stats()
+        lines.append("pii_redacted: true")
+        lines.append(f"pii_redactions: {r_stats['total_redactions']}")
+    lines.extend(
+        [
+            "---",
+            "",
+            f"# {title_out or '未命名书籍'}",
+            "",
+        ]
+    )
+    for seq, side, conf, body in page_bodies:
         lines.append(f"<!-- page: {seq} side: {side} conf: {conf:.2f} -->")
         lines.append(body if body else "_（本页暂无识别文本）_")
         lines.append("")
@@ -350,22 +379,38 @@ def export_epub(book: dict[str, Any], pages: list[dict[str, Any]], out_path: Pat
     return out_path
 
 
-def export_jsonl(book: dict[str, Any], pages: list[dict[str, Any]], out_path: Path) -> Path:
+def export_jsonl(
+    book: dict[str, Any],
+    pages: list[dict[str, Any]],
+    out_path: Path,
+    *,
+    redactor: "ConsistentPIIRedactor | None" = None,
+) -> Path:
     """Export one JSON object per page for downstream search indexing / RAG."""
     out_path = Path(out_path)
     out_path.parent.mkdir(parents=True, exist_ok=True)
+    use_redactor = bool(redactor and redactor.enabled)
+    title_out = (
+        redactor.redact_text(str(book.get("title", "")))
+        if use_redactor and redactor is not None
+        else str(book.get("title", ""))
+    )
     with open(out_path, "w", encoding="utf-8") as f:
         for p in pages:
+            text_val = (p.get("clean_text") or p.get("ocr_text") or "").strip()
+            if use_redactor and redactor is not None and text_val:
+                text_val = redactor.redact_text(text_val)
             rec = {
                 "book_id": book.get("id"),
-                "book_title": book.get("title", ""),
+                "book_title": title_out,
                 "page_id": p.get("id"),
                 "seq_no": p.get("seq_no"),
                 "spread_side": p.get("spread_side", "S"),
-                "text": (p.get("clean_text") or p.get("ocr_text") or "").strip(),
+                "text": text_val,
                 "ocr_confidence": round(float(p.get("ocr_confidence", 0.0)), 4),
                 "qa_flags": p.get("qa_flags") or [],
                 "status": p.get("status", ""),
+                "pii_redacted": use_redactor,
             }
             f.write(json.dumps(rec, ensure_ascii=False) + "\n")
     return out_path

@@ -3,8 +3,13 @@
 from __future__ import annotations
 
 import difflib
+import math
 import re
-from typing import Any
+import statistics
+from typing import TYPE_CHECKING, Any
+
+if TYPE_CHECKING:
+    from book_cleaner.pipeline.pii_redactor import ConsistentPIIRedactor
 
 from book_cleaner.pipeline.data_clean import (
     CleaningRules,
@@ -375,7 +380,7 @@ def _assemble_catboost_dataset(
             conf = float(meta.get("ocr_confidence", 0.0))
             if conf > 0:
                 b["confs"].append(conf)
-            if meta.get("warnings"):
+            if meta.get("warnings") or meta.get("cell_alerts"):
                 b["review_required"] = 1
 
             for tk in time_keys:
@@ -503,11 +508,238 @@ def _assemble_catboost_dataset(
     }
 
 
+def _parse_optional_bound(val: Any) -> float | None:
+    if val is None or isinstance(val, bool) or val == "":
+        return None
+    try:
+        num = float(val)
+        return num if math.isfinite(num) else None
+    except (TypeError, ValueError):
+        return None
+
+
+def _format_range_text(min_v: float | None, max_v: float | None) -> str:
+    if min_v is not None and max_v is not None:
+        return f"{min_v:g}~{max_v:g}"
+    if min_v is not None:
+        return f">={min_v:g}"
+    if max_v is not None:
+        return f"<={max_v:g}"
+    return ""
+
+
+def _resolve_row_batch_id(
+    row: dict[str, Any],
+    meta_keys: list[str],
+    fallback_batch: str,
+) -> str:
+    for mk in meta_keys:
+        val = str(row.get(mk) or "").strip()
+        if val:
+            return val
+    meta = row.get("_meta") or {}
+    return str(meta.get("batch_id") or fallback_batch).strip() or fallback_batch
+
+
+def _add_row_cell_alert(row: dict[str, Any], field_key: str, msg: str) -> bool:
+    meta = row.setdefault("_meta", {})
+    alerts = meta.setdefault("cell_alerts", {})
+    warns = meta.setdefault("warnings", [])
+    meta["has_verifiable_error"] = True
+
+    existing = alerts.get(field_key, "")
+    if msg not in existing:
+        alerts[field_key] = f"{existing}；{msg}" if existing else msg
+    if msg not in warns:
+        warns.append(msg)
+        return True
+    return False
+
+
+def _audit_sheet_verifiable_checks(
+    sheet_buckets: dict[str, dict[str, Any]],
+    warning_rows: list[dict[str, Any]],
+    fallback_batch: str,
+) -> int:
+    """Run deterministic field range bounds, not-null checks, and intra-batch >5x outlier audits."""
+    verifiable_alert_count = 0
+
+    for sid, bucket in sheet_buckets.items():
+        sheet_name = str(bucket.get("name") or sid)
+        fields = list(bucket.get("fields") or [])
+        rows = list(bucket.get("rows") or [])
+        meta_keys = [str(f.get("key") or "") for f in fields if f.get("role") == "meta_id" and f.get("key")]
+        row_new_alerts: dict[int, list[str]] = {}
+
+        # 1. Per-row required & min/max physical bounds
+        for r_idx, row in enumerate(rows):
+            meta = row.setdefault("_meta", {})
+            meta.setdefault("cell_alerts", {})
+            meta.setdefault("warnings", [])
+
+            for f in fields:
+                fk = str(f.get("key") or "")
+                fname = str(f.get("name") or fk)
+                if not fk:
+                    continue
+                raw_val = row.get(fk)
+                is_empty = raw_val is None or (isinstance(raw_val, str) and not raw_val.strip())
+
+                if bool(f.get("require_not_null", False)) and is_empty:
+                    msg = f"必填缺失: {fname}不能为空"
+                    if _add_row_cell_alert(row, fk, msg):
+                        row_new_alerts.setdefault(r_idx, []).append(msg)
+                        verifiable_alert_count += 1
+                    continue
+
+                if is_empty:
+                    continue
+
+                min_v = _parse_optional_bound(f.get("min_val"))
+                max_v = _parse_optional_bound(f.get("max_val"))
+                if min_v is None and max_v is None:
+                    continue
+
+                num_v = (
+                    float(raw_val)
+                    if isinstance(raw_val, (int, float)) and not isinstance(raw_val, bool)
+                    else parse_numeric_value(str(raw_val))
+                )
+                if num_v is not None and math.isfinite(num_v):
+                    if (min_v is not None and num_v < min_v) or (max_v is not None and num_v > max_v):
+                        rng_str = _format_range_text(min_v, max_v)
+                        msg = f"越界异常: {fname}={num_v:g} (合理范围 {rng_str})"
+                        if _add_row_cell_alert(row, fk, msg):
+                            row_new_alerts.setdefault(r_idx, []).append(msg)
+                            verifiable_alert_count += 1
+
+        # 2. Intra-batch >5x decimal-shift outlier check across numeric metrics
+        for f in fields:
+            role = str(f.get("role") or "")
+            if role not in ("num_feature", "target_y"):
+                continue
+            fk = str(f.get("key") or "")
+            fname = str(f.get("name") or fk)
+            if not fk:
+                continue
+            min_v = _parse_optional_bound(f.get("min_val"))
+            max_v = _parse_optional_bound(f.get("max_val"))
+
+            by_batch: dict[str, list[tuple[int, dict[str, Any], float]]] = {}
+            for r_idx, row in enumerate(rows):
+                val = row.get(fk)
+                num_v = (
+                    float(val)
+                    if isinstance(val, (int, float)) and not isinstance(val, bool)
+                    else (parse_numeric_value(str(val)) if val is not None else None)
+                )
+                if num_v is not None and math.isfinite(num_v) and num_v > 0:
+                    bid = _resolve_row_batch_id(row, meta_keys, fallback_batch)
+                    by_batch.setdefault(bid, []).append((r_idx, row, float(num_v)))
+
+            for bid, pairs in by_batch.items():
+                if len(pairs) < 2:
+                    continue
+                if len(pairs) >= 3:
+                    med = float(statistics.median(v for _, _, v in pairs))
+                    if med <= 0:
+                        continue
+                    for r_idx, row, v in pairs:
+                        if (v / med) > 5.0 or (med / v) > 5.0:
+                            msg = f"离群突变(>5倍): {fname}={v:g} (同批中位数 {med:g}，疑似小数点错位)"
+                            if _add_row_cell_alert(row, fk, msg):
+                                row_new_alerts.setdefault(r_idx, []).append(msg)
+                                verifiable_alert_count += 1
+                else:
+                    (idx_lo, row_lo, v_lo), (idx_hi, row_hi, v_hi) = sorted(pairs, key=lambda x: x[2])
+                    if v_lo > 0 and (v_hi / v_lo) > 5.0:
+                        lo_oob = (min_v is not None and v_lo < min_v) or (max_v is not None and v_lo > max_v)
+                        hi_oob = (min_v is not None and v_hi < min_v) or (max_v is not None and v_hi > max_v)
+                        if lo_oob and not hi_oob:
+                            bad_idx, bad_row, bad_v, ref_v = idx_lo, row_lo, v_lo, v_hi
+                        else:
+                            bad_idx, bad_row, bad_v, ref_v = idx_hi, row_hi, v_hi, v_lo
+                        msg = f"离群突变(>5倍): {fname}={bad_v:g} (同批对照 {ref_v:g}，疑似小数点错位)"
+                        if _add_row_cell_alert(bad_row, fk, msg):
+                            row_new_alerts.setdefault(bad_idx, []).append(msg)
+                            verifiable_alert_count += 1
+
+        for r_idx, alerts in sorted(row_new_alerts.items()):
+            row = rows[r_idx]
+            meta = row.get("_meta") or {}
+            bid = _resolve_row_batch_id(row, meta_keys, fallback_batch)
+            warning_rows.append(
+                {
+                    "sheet_name": sheet_name,
+                    "page_no": int(meta.get("page_no", 0)),
+                    "warnings": list(alerts),
+                    "summary": f"[{bid}] " + "；".join(alerts),
+                    "ocr_confidence": float(meta.get("ocr_confidence", 0.0)),
+                    "severity": "error",
+                }
+            )
+
+    return verifiable_alert_count
+
+
+def _apply_redactor_to_pack(
+    sheet_buckets: dict[str, dict[str, Any]],
+    unassigned_pages: list[dict[str, Any]],
+    ignored_pages: list[dict[str, Any]],
+    warning_rows: list[dict[str, Any]],
+    redactor: "ConsistentPIIRedactor",
+) -> None:
+    """Apply consistent PII masking in-place prior to CatBoost wide-table assembly."""
+    if not redactor or not redactor.enabled:
+        return
+
+    for sb in sheet_buckets.values():
+        field_name_by_key = {
+            str(f.get("key") or ""): str(f.get("name") or f.get("key") or "")
+            for f in (sb.get("fields") or [])
+            if f.get("key")
+        }
+        for row in sb.get("rows") or []:
+            for fk, fname in field_name_by_key.items():
+                if fk in row:
+                    row[fk] = redactor.redact_cell(row[fk], field_name=fname)
+            meta = row.get("_meta") or {}
+            if meta.get("batch_id"):
+                meta["batch_id"] = redactor.redact_text(str(meta["batch_id"]))
+            if meta.get("warnings"):
+                meta["warnings"] = [redactor.redact_text(str(w)) for w in meta["warnings"]]
+            if meta.get("cell_alerts"):
+                meta["cell_alerts"] = {
+                    k: redactor.redact_text(str(v))
+                    for k, v in (meta["cell_alerts"] or {}).items()
+                }
+        for page_card in sb.get("assigned_pages") or []:
+            if page_card.get("title"):
+                page_card["title"] = redactor.redact_text(str(page_card["title"]))
+            if page_card.get("batch_id"):
+                page_card["batch_id"] = redactor.redact_text(str(page_card["batch_id"]))
+
+    for list_pages in (unassigned_pages, ignored_pages):
+        for page_card in list_pages:
+            if page_card.get("title"):
+                page_card["title"] = redactor.redact_text(str(page_card["title"]))
+            if page_card.get("batch_id"):
+                page_card["batch_id"] = redactor.redact_text(str(page_card["batch_id"]))
+
+    for w in warning_rows:
+        if w.get("summary"):
+            w["summary"] = redactor.redact_text(str(w["summary"]))
+        if w.get("warnings"):
+            w["warnings"] = [redactor.redact_text(str(item)) for item in w["warnings"]]
+
+
 def match_book_to_template_pack(
     book: dict[str, Any],
     pages: list[dict[str, Any]],
     template: dict[str, Any],
     assignments: dict[int, dict[str, Any]] | None = None,
+    *,
+    redactor: "ConsistentPIIRedactor | None" = None,
 ) -> dict[str, Any]:
     """Route scanned pages into multi-sheet template drawers, match columns, and assemble CatBoost table."""
     rules = CleaningRules.from_dict(template.get("rules"))
@@ -783,6 +1015,21 @@ def match_book_to_template_pack(
                 }
             )
 
+    verifiable_alert_count = _audit_sheet_verifiable_checks(
+        sheet_buckets,
+        warning_rows,
+        fallback_batch=fallback_batch,
+    )
+
+    if redactor is not None and redactor.enabled:
+        _apply_redactor_to_pack(
+            sheet_buckets,
+            unassigned_pages,
+            ignored_pages,
+            warning_rows,
+            redactor,
+        )
+
     # Finalize column_mappings per sheet + overall coverage
     sheets_out: list[dict[str, Any]] = []
     total_src_cols = 0
@@ -795,10 +1042,13 @@ def match_book_to_template_pack(
             total_src_cols += 1
             if mf is not None:
                 aligned_src_cols += 1
+            samples = info["samples"]
+            if redactor is not None and redactor.enabled:
+                samples = [redactor.redact_text(str(sv)) for sv in samples]
             mappings.append(
                 {
                     "source_col": src_col,
-                    "sample_values": info["samples"],
+                    "sample_values": samples,
                     "count": info["count"],
                     "target_field_key": mf["key"] if mf else None,
                     "target_field_name": mf["name"] if mf else None,
@@ -828,6 +1078,7 @@ def match_book_to_template_pack(
             "sheet_count": len(sheets_out),
             "target_y_names": catboost_dataset["target_y_cols"],
             "total_batches": len(catboost_dataset["rows"]),
+            "verifiable_alert_count": verifiable_alert_count,
         },
         "sheets": sheets_out,
         "unassigned_pages": unassigned_pages,

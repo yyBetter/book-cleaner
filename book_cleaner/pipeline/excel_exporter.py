@@ -19,6 +19,7 @@ from book_cleaner.pipeline.data_clean import (
     parse_numeric_value,
     sanitize_excel_text,
 )
+from book_cleaner.pipeline.pii_redactor import ConsistentPIIRedactor, parse_custom_redact_terms
 
 
 _HEADER_AUTO_MAP: dict[str, tuple[str, str]] = {
@@ -130,6 +131,9 @@ def read_workbook_sheets_from_xlsx(raw_bytes: bytes) -> list[dict[str, Any]]:
                         "role": role,
                         "agg": "stats" if role == "num_feature" else ("join" if role == "text_feature" else "last"),
                         "aliases": aliases,
+                        "min_val": None,
+                        "max_val": None,
+                        "require_not_null": False,
                     }
                 )
 
@@ -233,6 +237,54 @@ def _auto_fit_columns(ws, min_width: int = 12, max_width: int = 52) -> None:
         ws.column_dimensions[col_letter].width = min(max_width, max(min_width, max_len))
 
 
+def _redact_legacy_rows(
+    book: dict[str, Any],
+    columns: list[dict[str, Any]],
+    structured_rows: list[dict[str, Any]],
+    redactor: ConsistentPIIRedactor,
+) -> tuple[dict[str, Any], list[dict[str, Any]]]:
+    """Return a consistently redacted shallow copy of book & legacy structured_rows."""
+    col_header_by_key = {
+        str(c.get("key") or c.get("header") or ""): str(c.get("header") or c.get("key") or "")
+        for c in columns
+    }
+    red_book = {
+        **book,
+        "title": redactor.redact_text(str(book.get("title") or "")),
+        "author": redactor.redact_text(str(book.get("author") or "")),
+    }
+    red_rows: list[dict[str, Any]] = []
+    tbl_headers_by_key: dict[tuple[int, int], list[str]] = {}
+
+    for r in structured_rows:
+        kind = str(r.get("row_kind") or "ENTRY")
+        data = dict(r.get("data") or {})
+        warns = [redactor.redact_text(str(w)) for w in (r.get("warnings") or [])]
+        if kind == "TABLE":
+            tbl_key = (int(r.get("page_no", 0)), int(r.get("table_index", 0)))
+            raw_cells = list(data.get("cells") or [])
+            if data.get("is_header"):
+                hdrs = [str(c or "") for c in raw_cells]
+                tbl_headers_by_key[tbl_key] = hdrs
+                new_cells = [redactor.redact_text(str(c or "")) for c in raw_cells]
+            else:
+                hdrs = tbl_headers_by_key.get(tbl_key, [])
+                new_cells = [
+                    redactor.redact_cell(c, field_name=hdrs[i] if i < len(hdrs) else "")
+                    for i, c in enumerate(raw_cells)
+                ]
+            data["cells"] = new_cells
+            if data.get("batch_id"):
+                data["batch_id"] = redactor.redact_text(str(data["batch_id"]))
+        else:
+            for k, v in list(data.items()):
+                fname = col_header_by_key.get(str(k), str(k))
+                data[k] = redactor.redact_cell(v, field_name=fname)
+        red_rows.append({**r, "data": data, "warnings": warns})
+
+    return red_book, red_rows
+
+
 def export_excel_workbook(
     book: dict[str, Any],
     template: dict[str, Any],
@@ -242,10 +294,17 @@ def export_excel_workbook(
     *,
     pages: list[dict[str, Any]] | None = None,
     page_assignments: dict[int, dict[str, Any]] | None = None,
+    redact_pii: bool | None = None,
+    custom_redact_terms: list[str] | str | None = None,
 ) -> Path:
     """Export cleaned narrative entries, extracted tables, or Multi-Sheet Pack + CatBoost .xlsx."""
     out_path = Path(out_path)
     out_path.parent.mkdir(parents=True, exist_ok=True)
+    rules = template.get("rules") or {}
+    eff_redact = bool(rules.get("redact_pii", False)) if redact_pii is None else bool(redact_pii)
+    eff_terms = parse_custom_redact_terms(
+        rules.get("custom_redact_terms") if custom_redact_terms is None else custom_redact_terms
+    )
 
     if list(template.get("sheets") or []) and pages is not None:
         return export_multisheet_pack_workbook(
@@ -254,7 +313,15 @@ def export_excel_workbook(
             pages=pages,
             page_assignments=page_assignments,
             out_path=out_path,
+            redact_pii=eff_redact,
+            custom_redact_terms=eff_terms,
         )
+
+    columns = list(template.get("columns") or [])
+    redactor: ConsistentPIIRedactor | None = None
+    if eff_redact:
+        redactor = ConsistentPIIRedactor(enabled=True, custom_terms=eff_terms)
+        book, structured_rows = _redact_legacy_rows(book, columns, structured_rows, redactor)
 
     wb = Workbook()
     header_fill = PatternFill(start_color="1F3864", end_color="1F3864", fill_type="solid")
@@ -266,7 +333,6 @@ def export_excel_workbook(
     cell_border = Border(left=thin_side, right=thin_side, top=thin_side, bottom=thin_side)
     body_align = Alignment(vertical="top", wrap_text=True)
 
-    columns = list(template.get("columns") or [])
     entry_rows = [r for r in structured_rows if r.get("row_kind") == "ENTRY"]
     table_rows = [r for r in structured_rows if r.get("row_kind") == "TABLE"]
 
@@ -409,6 +475,12 @@ def export_excel_workbook(
 
     exported_at = datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
     rules = template.get("rules") or {}
+    r_stats = redactor.stats() if redactor is not None else None
+    stripped_headers = (
+        [redactor.redact_text(str(h)) for h in (summary.get("running_headers_stripped") or [])]
+        if redactor is not None
+        else (summary.get("running_headers_stripped") or [])
+    )
     summary_pairs = [
         ("书目名称", sanitize_excel_text(book.get("title", ""))),
         ("作者", sanitize_excel_text(book.get("author", ""))),
@@ -421,10 +493,14 @@ def export_excel_workbook(
         ("自动去重过滤条数", summary.get("dedup_removed", 0)),
         ("异常待复核行总数", summary.get("warning_rows", 0)),
         ("质检通过率 (%)", summary.get("pass_rate_pct", 100.0)),
-        ("去除重复页眉/页脚", sanitize_excel_text(", ".join(summary.get("running_headers_stripped") or []) or "无")),
+        ("去除重复页眉/页脚", sanitize_excel_text(", ".join(stripped_headers) or "无")),
         ("全角转半角", "开启" if rules.get("normalize_fullwidth", True) else "关闭"),
         ("日期统一 YYYY-MM-DD", "开启" if rules.get("normalize_dates", True) else "关闭"),
         ("低置信标黄阈值", rules.get("min_confidence_warn", 0.82)),
+        (
+            "隐私脱敏 (PII 掩码)",
+            f"已开启 · 共脱敏 {r_stats['total_redactions']} 处 ({r_stats['summary_text']})" if r_stats else "关闭",
+        ),
     ]
     for k, v in summary_pairs:
         ws_sum.append([k, v])
@@ -720,13 +796,29 @@ def export_multisheet_pack_workbook(
     pages: list[dict[str, Any]],
     page_assignments: dict[int, dict[str, Any]] | None,
     out_path: Path,
+    redact_pii: bool | None = None,
+    custom_redact_terms: list[str] | str | None = None,
 ) -> Path:
     """Export a Multi-Sheet Template Pack (.xlsx) with independent Sheet drawers + multi-y CatBoost wide table."""
     from book_cleaner.pipeline.sheet_matcher import match_book_to_template_pack
 
     out_path = Path(out_path)
     out_path.parent.mkdir(parents=True, exist_ok=True)
-    match_res = match_book_to_template_pack(book, pages, template, page_assignments)
+
+    rules = template.get("rules") or {}
+    eff_redact = bool(rules.get("redact_pii", False)) if redact_pii is None else bool(redact_pii)
+    eff_terms = parse_custom_redact_terms(
+        rules.get("custom_redact_terms") if custom_redact_terms is None else custom_redact_terms
+    )
+    redactor = ConsistentPIIRedactor(enabled=True, custom_terms=eff_terms) if eff_redact else None
+
+    match_res = match_book_to_template_pack(
+        book,
+        pages,
+        template,
+        page_assignments,
+        redactor=redactor,
+    )
 
     wb = Workbook()
     default_ws = wb.active
@@ -737,6 +829,8 @@ def export_multisheet_pack_workbook(
     target_fill = PatternFill(start_color="D1FAE5", end_color="D1FAE5", fill_type="solid")
     target_font = Font(color="065F46", bold=True, size=11)
     warn_fill = PatternFill(start_color="FFF3CD", end_color="FFF3CD", fill_type="solid")
+    error_fill = PatternFill(start_color="FEE2E2", end_color="FEE2E2", fill_type="solid")
+    error_font = Font(color="991B1B", bold=True, size=11)
     thin_side = Side(style="thin", color="D0D7DE")
     cell_border = Border(left=thin_side, right=thin_side, top=thin_side, bottom=thin_side)
     body_align = Alignment(vertical="top", wrap_text=True)
@@ -764,9 +858,11 @@ def export_multisheet_pack_workbook(
             cell.alignment = Alignment(vertical="center", horizontal="left")
 
         rows = list(s.get("rows") or [])
+        remark_col_idx = len(fields) + 2
         for r in rows:
             meta = r.get("_meta") or {}
             warns = list(meta.get("warnings") or [])
+            cell_alerts = meta.get("cell_alerts") or {}
             row_vals = [_excel_cell_val(r.get(f.get("key"))) for f in fields]
             row_vals.extend(
                 [
@@ -776,10 +872,16 @@ def export_multisheet_pack_workbook(
                 ]
             )
             ws.append(row_vals)
-            for cell in ws[ws.max_row]:
+            for col_0, cell in enumerate(ws[ws.max_row]):
                 cell.border = cell_border
                 cell.alignment = body_align
-                if warns:
+                if col_0 < len(fields) and str(fields[col_0].get("key") or "") in cell_alerts:
+                    cell.fill = error_fill
+                    cell.font = error_font
+                elif col_0 == remark_col_idx and cell_alerts:
+                    cell.fill = error_fill
+                    cell.font = error_font
+                elif warns:
                     cell.fill = warn_fill
 
         ws.freeze_panes = "A2"
@@ -796,11 +898,16 @@ def export_multisheet_pack_workbook(
         cell.font = header_font
         cell.border = cell_border
     for w in match_res.get("warning_rows") or []:
+        w_warns = list(w.get("warnings") or [])
+        w_text = "; ".join(str(item) for item in w_warns)
+        is_err = w.get("severity") == "error" or any(
+            kw in w_text for kw in ("越界异常", "离群突变", "必填缺失")
+        )
         ws_warn.append(
             [
                 sanitize_excel_text(w.get("sheet_name") or ""),
                 int(w.get("page_no", 0)),
-                sanitize_excel_text("; ".join(w.get("warnings") or [])),
+                sanitize_excel_text(w_text),
                 sanitize_excel_text(w.get("summary") or ""),
                 f"{float(w.get('ocr_confidence', 0.0)) * 100:.1f}%",
             ]
@@ -808,7 +915,11 @@ def export_multisheet_pack_workbook(
         for cell in ws_warn[ws_warn.max_row]:
             cell.border = cell_border
             cell.alignment = body_align
-            cell.fill = warn_fill
+            if is_err:
+                cell.fill = error_fill
+                cell.font = error_font
+            else:
+                cell.fill = warn_fill
     ws_warn.freeze_panes = "A2"
     _auto_fit_columns(ws_warn, min_width=14, max_width=52)
 
@@ -821,8 +932,10 @@ def export_multisheet_pack_workbook(
         cell.fill = header_fill
         cell.font = header_font
         cell.border = cell_border
+    title_out = redactor.redact_text(str(book.get("title") or "")) if redactor else str(book.get("title") or "")
+    r_stats = redactor.stats() if redactor else None
     summary_items = [
-        ("工作集 / 书目", sanitize_excel_text(book.get("title") or "")),
+        ("工作集 / 书目", sanitize_excel_text(title_out)),
         ("套用多表模板包", sanitize_excel_text(template.get("name") or "")),
         ("导出时间 (UTC)", datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")),
         ("总页数", cov.get("total_pages", 0)),
@@ -830,8 +943,13 @@ def export_multisheet_pack_workbook(
         ("待确认归类页数", cov.get("unassigned_pages", 0)),
         ("暂不导出页数", cov.get("ignored_pages", 0)),
         ("纸面字段对齐率 (%)", cov.get("alignment_pct", 100.0)),
+        ("数值稽核拦截异常数", cov.get("verifiable_alert_count", 0)),
         ("沉淀批次数 (1批次=1行)", cov.get("total_batches", 0)),
         ("识别目标列 target_y", ", ".join(cb.get("target_y_cols") or []) or "无"),
+        (
+            "隐私脱敏 (PII 掩码)",
+            f"已开启 · 共脱敏 {r_stats['total_redactions']} 处 ({r_stats['summary_text']})" if r_stats else "关闭",
+        ),
     ]
     for title_s, p_cnt, r_cnt in sheet_row_counts:
         summary_items.append((f"子表「{title_s}」", f"{p_cnt} 页 · {r_cnt} 行"))
@@ -843,11 +961,11 @@ def export_multisheet_pack_workbook(
     _auto_fit_columns(ws_sum, min_width=18, max_width=64)
 
     # 4. CatBoost feature wide table + field schema contract
-    rules = template.get("rules") or {}
     if bool(rules.get("catboost_mode", True)):
         ws_cb = wb.create_sheet(title="CatBoost_特征宽表")
         cb_headers = list(cb.get("headers") or ["batch_id", "record_date", "avg_ocr_conf", "review_required"])
         y_set = set(cb.get("target_y_cols") or [])
+        review_col_idx = cb_headers.index("review_required") if "review_required" in cb_headers else -1
         ws_cb.append(cb_headers)
         for col_i, cell in enumerate(ws_cb[1]):
             is_y = cb_headers[col_i] in y_set
@@ -858,9 +976,16 @@ def export_multisheet_pack_workbook(
 
         for rec in cb.get("rows") or []:
             ws_cb.append([_excel_cell_val(rec.get(h)) for h in cb_headers])
-            for cell in ws_cb[ws_cb.max_row]:
+            need_review = int(rec.get("review_required") or 0) == 1
+            for col_0, cell in enumerate(ws_cb[ws_cb.max_row]):
                 cell.border = cell_border
                 cell.alignment = body_align
+                if need_review:
+                    if col_0 == review_col_idx:
+                        cell.fill = error_fill
+                        cell.font = error_font
+                    else:
+                        cell.fill = warn_fill
         ws_cb.freeze_panes = "A2"
         if ws_cb.max_row >= 1 and ws_cb.max_column >= 1:
             ws_cb.auto_filter.ref = ws_cb.dimensions
